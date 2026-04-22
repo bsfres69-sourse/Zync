@@ -717,11 +717,11 @@ const EMOJIS = ['👍','👎','❤️','😂','😮','😢','🔥','🎉','✅',
 //  INIT
 // ═══════════════════════════════════════════════════════
 function init() {
-  const url = localStorage.getItem('supa_url');
-  const key = localStorage.getItem('supa_key');
-  if (url && key) {
-    initSupabase(url, key);
-  }
+  const url = 'https://ynkqxhjctflbpyljbgtq.supabase.co';
+  const key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlua3F4aGpjdGZsYnB5bGpiZ3RxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4NzQ1NjgsImV4cCI6MjA5MjQ1MDU2OH0.NLI1cvkcgcmrUXYKip8MK711Ou62m633qxqxtVwXehA';
+  localStorage.setItem('supa_url', url);
+  localStorage.setItem('supa_key', key);
+  initSupabase(url, key);
 }
 
 function initSupabase(url, key) {
