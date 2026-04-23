@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WorkChat</title>
+<title>Zync</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
@@ -444,10 +444,32 @@
   }
   .pp-dm-btn:hover { opacity: 0.85; }
 
+  /* ─── MOBILE ────────────────────────────── */
+  @media (max-width: 640px) {
+    #sidebar {
+      position: fixed; inset: 0; z-index: 50; width: 100% !important; min-width: unset;
+      transform: translateX(0); transition: transform .25s ease;
+    }
+    #sidebar.hidden-mobile { transform: translateX(-100%); }
+    #main { width: 100%; }
+    #members-panel { display: none !important; }
+    .chat-header { padding: 0 12px; }
+    #messages-area { padding: 12px; }
+    #input-area { padding: 8px 12px 12px; }
+    .auth-card { width: 92vw; padding: 28px 20px; }
+    .modal { width: 92vw; padding: 22px 18px; }
+    #back-btn { display: flex !important; }
+    .header-actions .header-btn span { display: none; }
+  }
+  #back-btn {
+    display: none; width: 32px; height: 32px; border: none; background: transparent;
+    cursor: pointer; color: var(--text2); border-radius: 6px;
+    align-items: center; justify-content: center; transition: background .15s;
+  }
+  #back-btn:hover { background: var(--surface2); color: var(--text); }
+
   /* FILE INPUT HIDDEN */
   #file-input { display: none; }
-
-  /* PING ANIMATION */
   @keyframes ping { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } }
   .ping { animation: ping 0.3s ease-out; }
 
@@ -487,7 +509,7 @@
         <path d="M10 24L16 12L22 20L26 15L30 24H10Z" fill="white" opacity="0.9"/>
         <circle cx="26" cy="12" r="3" fill="white"/>
       </svg>
-      <span>WorkChat</span>
+      <span>Zync</span>
     </div>
     <div class="auth-tabs">
       <button class="auth-tab active" onclick="switchTab('login')">Войти</button>
@@ -514,7 +536,7 @@
   <!-- SIDEBAR -->
   <div id="sidebar">
     <div class="sidebar-header">
-      <span class="workspace-name">WorkChat</span>
+      <span class="workspace-name">Zync</span>
       <button class="sidebar-icon-btn" title="Создать канал" onclick="openModal('channel-modal')">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z"/></svg>
       </button>
@@ -560,6 +582,9 @@
 
     <div id="chat-view" style="display:none; flex-direction:column; flex:1; overflow:hidden;">
       <div class="chat-header">
+        <button id="back-btn" onclick="goBackToSidebar()">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M9.78 12.78a.75.75 0 01-1.06 0L4.47 8.53a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 1.06L6.06 8l3.72 3.72a.75.75 0 010 1.06z"/></svg>
+        </button>
         <span class="chat-header-icon" id="chat-icon">#</span>
         <span class="chat-header-name" id="chat-name"></span>
         <span class="chat-header-desc" id="chat-desc"></span>
@@ -908,8 +933,9 @@ async function createChannel() {
 // ═══════════════════════════════════════════════════════
 async function loadDMs() {
   const { data } = await supabaseClient.from('direct_conversations')
-    .select('*, profiles!direct_conversations_other_user_id_fkey(*)')
-    .or(`user1_id.eq.${currentUser.id},user2_id.eq.${currentUser.id}`);
+    .select('*')
+    .or(`user1_id.eq.${currentUser.id},user2_id.eq.${currentUser.id}`)
+    .order('created_at');
 
   dms = [];
   if (data) {
@@ -1015,6 +1041,7 @@ async function openChannel(ch) {
   renderChannels();
   renderDMs();
   cancelReply();
+  openChatMobile();
   await loadMessages(ch.id, 'channel');
   subscribeToChannel(ch.id, 'channel');
   if (membersOpen) loadMembers();
@@ -1038,6 +1065,7 @@ async function openDM(dm) {
   renderChannels();
   renderDMs();
   cancelReply();
+  openChatMobile();
   await loadMessages(dm.id, 'dm');
   subscribeToChannel(dm.id, 'dm');
 }
@@ -1580,6 +1608,18 @@ function toast(msg, duration = 3000) {
   t.textContent = msg;
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), duration);
+}
+
+function goBackToSidebar() {
+  if (window.innerWidth <= 640) {
+    document.getElementById('sidebar').classList.remove('hidden-mobile');
+  }
+}
+
+function openChatMobile() {
+  if (window.innerWidth <= 640) {
+    document.getElementById('sidebar').classList.add('hidden-mobile');
+  }
 }
 
 // ═══════════════════════════════════════════════════════
