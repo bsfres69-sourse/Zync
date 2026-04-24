@@ -1753,23 +1753,22 @@ function cancelFile(){
 }
 async function uploadFile(file){
   try {
-    const ext=file.name.split('.').pop()||'bin';
-    const path=`${me.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-    const {data,error}=await db.storage.from('attachments').upload(path,file,{
-      contentType:file.type||'application/octet-stream',
-      cacheControl:'3600',
-      upsert:false
+    const ext = (file.name.split('.').pop()||'bin').toLowerCase();
+    const safeName = Date.now()+'_'+Math.random().toString(36).slice(2)+'.'+ext;
+    const path = `${me.id}/${safeName}`;
+    const { error } = await db.storage.from('attachments').upload(path, file, {
+      contentType: file.type||'application/octet-stream',
+      cacheControl: '3600',
+      upsert: true
     });
     if(error){
-      console.error('Upload error:',error);
       toast('Ошибка загрузки: '+error.message);
       return null;
     }
-    const {data:{publicUrl}}=db.storage.from('attachments').getPublicUrl(path);
-    return {file_url:publicUrl,file_name:file.name,file_type:file.type,file_size:file.size};
+    const { data: { publicUrl } } = db.storage.from('attachments').getPublicUrl(path);
+    return { file_url:publicUrl, file_name:file.name, file_type:file.type, file_size:file.size };
   } catch(e) {
-    console.error(e);
-    toast('Ошибка загрузки файла');
+    toast('Ошибка загрузки: '+e.message);
     return null;
   }
 }
@@ -1879,19 +1878,26 @@ function closeStoryViewer(){
   clearTimeout(svTimer);
   document.getElementById('sv-vid').pause();
 }
-function openAddStory(){ openModal('add-story-modal'); }
 async function uploadStory(){
-  const file=document.getElementById('story-file').files[0];
+  const file = document.getElementById('story-file').files[0];
   if(!file) return toast('Выберите файл');
-  const txt=v('story-text');
-  const ext=file.name.split('.').pop();
-  const path=`stories/${me.id}/${Date.now()}.${ext}`;
-  const {error}=await db.storage.from('attachments').upload(path,file,{contentType:file.type,upsert:false});
+  const txt = v('story-text');
+  const ext = (file.name.split('.').pop()||'bin').toLowerCase();
+  const path = `stories/${me.id}/${Date.now()}.${ext}`;
+  const { error } = await db.storage.from('attachments').upload(path, file, {
+    contentType: file.type, upsert: true
+  });
   if(error) return toast('Ошибка загрузки: '+error.message);
-  const {data:{publicUrl}}=db.storage.from('attachments').getPublicUrl(path);
-  const expires=new Date(Date.now()+5*60*60*1000).toISOString();
-  await db.from('stories').insert({user_id:me.id,media_url:publicUrl,media_type:file.type,text_overlay:txt,expires_at:expires});
+  const { data: { publicUrl } } = db.storage.from('attachments').getPublicUrl(path);
+  const expires = new Date(Date.now()+5*60*60*1000).toISOString();
+  const { error: dbErr } = await db.from('stories').insert({
+    user_id: me.id, media_url: publicUrl, media_type: file.type,
+    text_overlay: txt||null, expires_at: expires
+  });
+  if(dbErr) return toast('Ошибка: '+dbErr.message);
   closeModal('add-story-modal');
+  document.getElementById('story-file').value='';
+  document.getElementById('story-text').value='';
   toast('История добавлена ✓');
   await loadStories();
 }
@@ -1950,10 +1956,6 @@ function makeMpEl(p,online){
 // ════════════════════════════════════════════════
 //  PIN
 // ════════════════════════════════════════════════
-let pinnedChats = JSON.parse(localStorage.getItem('zync_pinned_chats')||'[]');
-// pinnedMsgs = {roomId: {id, content, author}}
-let pinnedMsgs = JSON.parse(localStorage.getItem('zync_pinned_msgs')||'{}');
-
 function togglePin(){
   // Закрепляет/открепляет чат в списке (вверх/вниз)
   if(!curRoom) return;
@@ -1970,25 +1972,6 @@ function togglePin(){
   updatePinBtn();
   renderDMs();
   renderChannels();
-}
-
-function togglePin(){
-  // Now pin is per-message via long press / right click, but header pin button pins the latest message
-  // Show current pinned or pin last message
-  if(!curRoom) return;
-  const rid = curRoom.id;
-  if(pinnedMsgs[rid]){
-    // unpin
-    delete pinnedMsgs[rid];
-    localStorage.setItem('zync_pinned_msgs', JSON.stringify(pinnedMsgs));
-    updatePinnedBanner();
-    toast('Откреплено');
-  } else {
-    // pin last message
-    const last = msgs[msgs.length-1];
-    if(!last) return toast('Нет сообщений для закрепа');
-    pinMessage(last.id);
-  }
 }
 
 function pinMessage(msgId){
