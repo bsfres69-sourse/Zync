@@ -231,18 +231,19 @@ html,body{height:100dvh;overflow:hidden;font-family:var(--font);background:var(-
   font-size:10px;color:var(--t3);width:36px;text-align:center}
 .msg.cont:hover .m-htime{display:block}
 
-/* Message actions - desktop hover */
+/* Message actions - HIDDEN by default always */
 .m-actions{
   position:absolute;right:8px;top:50%;transform:translateY(-50%);
   display:none;gap:2px;background:var(--s3);
   border:1px solid var(--border2);border-radius:9px;padding:3px 5px;
   box-shadow:0 4px 12px rgba(0,0,0,.4);z-index:10;
 }
-@media(hover:hover){
+/* Desktop only hover - only on devices that truly support hover */
+@media(hover:hover) and (pointer:fine){
   .msg:hover .m-actions{display:flex}
 }
-/* Mobile: show actions only when .tapped */
-.msg.tapped .m-actions{display:flex}
+/* Show only on explicitly tapped (mobile long press) */
+.msg.tapped .m-actions{display:flex!important}
 
 /* Pinned message banner */
 #pinned-banner{
@@ -956,11 +957,12 @@ let db, me, myProfile;
 let curRoom = null; // {id, type:'channel'|'dm'|'fav', name, ...}
 let msgs = [];
 let channels = [], dms = [], profiles = {}, onlineSet = new Set();
+let pinnedChats = JSON.parse(localStorage.getItem('zync_pinned_chats')||'[]');
+let pinnedMsgs = JSON.parse(localStorage.getItem('zync_pinned_msgs')||'{}');
 let replyTo = null, editingId = null, pendingFile = null;
 let typingTO = null, roomSub = null, typingSub = null;
 let membersOpen = false, emojiOpen = false;
-let grpSelected = []; // users selected for new group
-let pinned = JSON.parse(localStorage.getItem('zync_pinned')||'[]');
+let grpSelected = [];
 let notifEnabled = localStorage.getItem('zync_notif') === '1';
 
 const EMOJIS = ['👍','❤️','😂','🔥','😮','😢','🎉','✅','❌','👀','🤔','💯','🚀','⭐','🙌','👏','💡','🤝','💪','😍','🥰','😎','🤩','😴','🥳','👋','💀','🫡','🍕','🎮','😤','🤯'];
@@ -1102,8 +1104,14 @@ async function loadChannels() {
 function renderChannels(filter='') {
   const list=document.getElementById('ch-list');
   list.innerHTML='';
-  channels.filter(c=>c.name.toLowerCase().includes(filter.toLowerCase())).forEach(ch=>{
+  const filtered = channels.filter(c=>c.name.toLowerCase().includes(filter.toLowerCase()));
+  const sorted = [
+    ...filtered.filter(c=>pinnedChats.includes(c.id)),
+    ...filtered.filter(c=>!pinnedChats.includes(c.id)),
+  ];
+  sorted.forEach(ch=>{
     const isOn = curRoom?.id===ch.id;
+    const isPinned = pinnedChats.includes(ch.id);
     const el=makeConvEl({
       id:ch.id,
       icon: ch.type==='private'?'🔒':'#',
@@ -1111,7 +1119,8 @@ function renderChannels(filter='') {
       sub: ch.description||'',
       on: isOn,
       isGroup: true,
-      color: '#5b8def',
+      color: ch.type==='group'?'#8b5cf6':'#5b8def',
+      pinned: isPinned,
       onclick: ()=>openChannel(ch),
     });
     list.appendChild(el);
@@ -1287,30 +1296,29 @@ function renderDMs(filter='') {
   const fav=document.getElementById('fav-list');
   fav.innerHTML='';
 
-  // Self (Избранное)
+  // Избранное всегда вверху
   const favEl=makeConvEl({
-    id:'fav',
-    icon:'⭐',
-    name:'Избранное',
-    sub:'Мои заметки',
-    on: curRoom?.type==='fav',
-    color:'#f59e0b',
-    onclick:()=>openFav(),
+    id:'fav', icon:'⭐', name:'Избранное', sub:'Мои заметки',
+    on: curRoom?.type==='fav', color:'#f59e0b', onclick:()=>openFav(),
   });
   fav.appendChild(favEl);
 
-  dms.filter(d=>pName(d.otherId).toLowerCase().includes(filter.toLowerCase())).forEach(d=>{
+  // Сортируем: закреплённые вверху
+  const filtered = dms.filter(d=>pName(d.otherId).toLowerCase().includes(filter.toLowerCase()));
+  const sorted = [
+    ...filtered.filter(d=>pinnedChats.includes(d.id)),
+    ...filtered.filter(d=>!pinnedChats.includes(d.id)),
+  ];
+
+  sorted.forEach(d=>{
     const p=profiles[d.otherId]||{};
     const online=onlineSet.has(d.otherId);
-    const isPinned=pinned.includes(d.id);
+    const isPinned=pinnedChats.includes(d.id);
     const el=makeConvEl({
-      id:d.id,
-      name:pName(d.otherId),
-      sub:'',
+      id:d.id, name:pName(d.otherId), sub:'',
       on:curRoom?.id===d.id&&curRoom?.type==='dm',
       color:p.avatar_color||COLORS[0],
-      online,
-      pinned:isPinned,
+      online, pinned:isPinned,
       onclick:()=>openDM(d),
     });
     list.appendChild(el);
@@ -1942,8 +1950,27 @@ function makeMpEl(p,online){
 // ════════════════════════════════════════════════
 //  PIN
 // ════════════════════════════════════════════════
+let pinnedChats = JSON.parse(localStorage.getItem('zync_pinned_chats')||'[]');
 // pinnedMsgs = {roomId: {id, content, author}}
 let pinnedMsgs = JSON.parse(localStorage.getItem('zync_pinned_msgs')||'{}');
+
+function togglePin(){
+  // Закрепляет/открепляет чат в списке (вверх/вниз)
+  if(!curRoom) return;
+  const id = curRoom.id;
+  const i = pinnedChats.indexOf(id);
+  if(i>=0){
+    pinnedChats.splice(i,1);
+    toast('Чат откреплён');
+  } else {
+    pinnedChats.unshift(id);
+    toast('Чат закреплён 📌');
+  }
+  localStorage.setItem('zync_pinned_chats', JSON.stringify(pinnedChats));
+  updatePinBtn();
+  renderDMs();
+  renderChannels();
+}
 
 function togglePin(){
   // Now pin is per-message via long press / right click, but header pin button pins the latest message
@@ -2005,7 +2032,7 @@ function scrollToPinned(){
 
 function updatePinBtn(){
   if(!curRoom) return;
-  document.getElementById('pin-btn').style.opacity = pinnedMsgs[curRoom.id] ? '1' : '0.4';
+  document.getElementById('pin-btn').style.opacity = pinnedChats.includes(curRoom.id) ? '1' : '0.4';
 }
 
 // ════════════════════════════════════════════════
