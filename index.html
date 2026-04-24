@@ -231,14 +231,33 @@ html,body{height:100dvh;overflow:hidden;font-family:var(--font);background:var(-
   font-size:10px;color:var(--t3);width:36px;text-align:center}
 .msg.cont:hover .m-htime{display:block}
 
-/* Message actions */
+/* Message actions - desktop hover */
 .m-actions{
   position:absolute;right:8px;top:50%;transform:translateY(-50%);
   display:none;gap:2px;background:var(--s3);
   border:1px solid var(--border2);border-radius:9px;padding:3px 5px;
   box-shadow:0 4px 12px rgba(0,0,0,.4);z-index:10;
 }
-.msg:hover .m-actions{display:flex}
+@media(hover:hover){
+  .msg:hover .m-actions{display:flex}
+}
+/* Mobile: show actions only when .tapped */
+.msg.tapped .m-actions{display:flex}
+
+/* Pinned message banner */
+#pinned-banner{
+  display:none;align-items:center;gap:10px;
+  padding:8px 14px;background:rgba(91,141,239,.12);
+  border-bottom:1px solid rgba(91,141,239,.25);
+  cursor:pointer;flex-shrink:0;transition:background .15s;
+}
+#pinned-banner:hover{background:rgba(91,141,239,.18)}
+#pinned-banner.on{display:flex}
+.pin-icon{color:var(--accent);font-size:14px;flex-shrink:0}
+.pin-text{flex:1;font-size:12px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pin-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--accent);margin-bottom:1px}
+.pin-close{border:none;background:transparent;cursor:pointer;color:var(--t3);font-size:16px;padding:2px 4px}
+.pin-close:hover{color:var(--danger)}
 .m-act{padding:4px 5px;border:none;background:transparent;cursor:pointer;
   color:var(--t2);font-size:13px;border-radius:5px;transition:all .12s}
 .m-act:hover{background:var(--border2);color:var(--text)}
@@ -699,6 +718,14 @@ body.bubble .msg.cont:not(.mine){padding-left:46px}
         </div>
       </div>
 
+      <div id="pinned-banner" onclick="scrollToPinned()">
+        <span class="pin-icon">📌</span>
+        <div style="flex:1;overflow:hidden">
+          <div class="pin-label">Закреплено</div>
+          <div class="pin-text" id="pinned-text"></div>
+        </div>
+        <button class="pin-close" onclick="event.stopPropagation();unpinMsg()">×</button>
+      </div>
       <div id="msgs"></div>
       <div id="typing"></div>
 
@@ -1392,6 +1419,7 @@ async function openChannel(ch) {
   document.getElementById('msg-in').placeholder=`Написать в #${ch.name}...`;
   cancelReply();
   if(membersOpen) loadMembers();
+  updatePinnedBanner();
   await loadMsgs(ch.id,'channel');
   subscribeMsgs(ch.id,'channel');
   openChatMobile();
@@ -1417,6 +1445,7 @@ async function openDM(dm) {
   document.getElementById('msg-in').placeholder=`Написать ${pName(dm.otherId)}...`;
   cancelReply();
   if(membersOpen){membersOpen=false;document.getElementById('members-panel').classList.remove('on');}
+  updatePinnedBanner();
   await loadMsgs(dm.id,'dm');
   subscribeMsgs(dm.id,'dm');
   openChatMobile();
@@ -1544,6 +1573,7 @@ function makeMsgEl(msg,cont){
     <div class="m-actions">
       <button class="m-act" onclick="showReactPicker(event,'${msg.id}')" title="Реакция">😊</button>
       <button class="m-act" onclick="setReply('${msg.id}')" title="Ответить">↩</button>
+      <button class="m-act" onclick="pinMessage('${msg.id}')" title="Закрепить">📌</button>
       ${isMine?`<button class="m-act" onclick="editMsg('${msg.id}')" title="Редактировать">✏️</button>`:''}
       ${isMine?`<button class="m-act" onclick="deleteMsg('${msg.id}')" title="Удалить">🗑️</button>`:''}
     </div>
@@ -1912,20 +1942,70 @@ function makeMpEl(p,online){
 // ════════════════════════════════════════════════
 //  PIN
 // ════════════════════════════════════════════════
+// pinnedMsgs = {roomId: {id, content, author}}
+let pinnedMsgs = JSON.parse(localStorage.getItem('zync_pinned_msgs')||'{}');
+
 function togglePin(){
+  // Now pin is per-message via long press / right click, but header pin button pins the latest message
+  // Show current pinned or pin last message
   if(!curRoom) return;
-  const id=curRoom.id;
-  const i=pinned.indexOf(id);
-  if(i>=0) pinned.splice(i,1); else pinned.unshift(id);
-  localStorage.setItem('zync_pinned',JSON.stringify(pinned));
-  updatePinBtn();
-  renderDMs();
-  toast(i>=0?'Откреплено':'Закреплено 📌');
+  const rid = curRoom.id;
+  if(pinnedMsgs[rid]){
+    // unpin
+    delete pinnedMsgs[rid];
+    localStorage.setItem('zync_pinned_msgs', JSON.stringify(pinnedMsgs));
+    updatePinnedBanner();
+    toast('Откреплено');
+  } else {
+    // pin last message
+    const last = msgs[msgs.length-1];
+    if(!last) return toast('Нет сообщений для закрепа');
+    pinMessage(last.id);
+  }
 }
+
+function pinMessage(msgId){
+  if(!curRoom) return;
+  const msg = msgs.find(m=>m.id===msgId);
+  if(!msg) return;
+  const rid = curRoom.id;
+  pinnedMsgs[rid] = {id:msgId, content:msg.content||'[медиа]', author:pName(msg.user_id)};
+  localStorage.setItem('zync_pinned_msgs', JSON.stringify(pinnedMsgs));
+  updatePinnedBanner();
+  toast('Закреплено 📌');
+}
+
+function unpinMsg(){
+  if(!curRoom) return;
+  delete pinnedMsgs[curRoom.id];
+  localStorage.setItem('zync_pinned_msgs', JSON.stringify(pinnedMsgs));
+  updatePinnedBanner();
+  toast('Откреплено');
+}
+
+function updatePinnedBanner(){
+  if(!curRoom) return;
+  const banner = document.getElementById('pinned-banner');
+  const pin = pinnedMsgs[curRoom.id];
+  if(pin){
+    banner.classList.add('on');
+    document.getElementById('pinned-text').textContent = `${pin.author}: ${pin.content}`;
+  } else {
+    banner.classList.remove('on');
+  }
+  // Update pin button opacity
+  document.getElementById('pin-btn').style.opacity = pin ? '1' : '0.4';
+}
+
+function scrollToPinned(){
+  if(!curRoom) return;
+  const pin = pinnedMsgs[curRoom.id];
+  if(pin) scrollTo(pin.id);
+}
+
 function updatePinBtn(){
   if(!curRoom) return;
-  const btn=document.getElementById('pin-btn');
-  btn.style.opacity=pinned.includes(curRoom.id)?'1':'0.4';
+  document.getElementById('pin-btn').style.opacity = pinnedMsgs[curRoom.id] ? '1' : '0.4';
 }
 
 // ════════════════════════════════════════════════
@@ -2132,6 +2212,26 @@ function show(id){document.getElementById(id).style.display='flex';}
 function hide(id){document.getElementById(id).style.display='none';}
 function filterConvs(q){renderChannels(q);renderDMs(q);}
 
+// ════════════════════════════════════════════════
+//  MOBILE TOUCH — tap message to show actions
+// ════════════════════════════════════════════════
+let longPressTO = null;
+document.getElementById('msgs').addEventListener('touchstart', e=>{
+  const msgEl = e.target.closest('.msg');
+  if(!msgEl) return;
+  longPressTO = setTimeout(()=>{
+    document.querySelectorAll('.msg.tapped').forEach(m=>{if(m!==msgEl)m.classList.remove('tapped');});
+    msgEl.classList.toggle('tapped');
+  }, 400);
+}, {passive:true});
+document.getElementById('msgs').addEventListener('touchend', ()=>clearTimeout(longPressTO), {passive:true});
+document.getElementById('msgs').addEventListener('touchmove', ()=>clearTimeout(longPressTO), {passive:true});
+// Close actions when tapping elsewhere
+document.addEventListener('click', e=>{
+  if(!e.target.closest('.msg') && !e.target.closest('.m-actions')){
+    document.querySelectorAll('.msg.tapped').forEach(m=>m.classList.remove('tapped'));
+  }
+});
 // ════════════════════════════════════════════════
 //  START
 // ════════════════════════════════════════════════
