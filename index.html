@@ -323,8 +323,8 @@ body.bubble .msg.cont:not(.mine){padding-left:46px}
 /* PROFILE CARD */
 .pcard{position:fixed;z-index:400;width:300px;background:var(--s1);border:1px solid var(--b2);border-radius:20px;box-shadow:0 20px 60px rgba(0,0,0,.65);overflow:hidden;display:none;animation:pop .3s cubic-bezier(.34,1.56,.64,1)}
 .pcard.on{display:block}
-.pc-ban{height:80px;display:flex;align-items:center;justify-content:center;font-size:60px;position:relative;overflow:hidden}
-.pc-av{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;border:4px solid var(--s1);position:absolute;bottom:-20px;left:16px;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.pc-ban{height:100px;display:flex;align-items:center;justify-content:center;font-size:60px;position:relative;overflow:hidden}
+.pc-av{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;border:4px solid var(--s1);position:absolute;bottom:-16px;left:16px;box-shadow:0 4px 12px rgba(0,0,0,.4);z-index:2}
 .pc-body{padding:28px 16px 16px}
 .pc-nm{font-size:18px;font-weight:800;letter-spacing:-.3px}
 .pc-un{font-size:13px;color:var(--t3);margin-bottom:4px}
@@ -408,9 +408,9 @@ body.bubble .msg.cont:not(.mine){padding-left:46px}
 #sv-reply input::placeholder{color:rgba(255,255,255,.5)}
 #sv-reply button{width:40px;height:40px;border:none;border-radius:50%;background:var(--ac);color:#fff;font-size:18px;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center}
 #sv-reply button:hover{transform:scale(1.1)}
-#sv-like{position:absolute;bottom:60px;right:20px;width:44px;height:44px;border:none;border-radius:50%;background:rgba(0,0,0,.4);color:#fff;font-size:22px;cursor:pointer;z-index:6;transition:all .2s}
-#sv-like:hover{transform:scale(1.15)}
-#sv-like.liked{background:rgba(247,84,100,.5);animation:pop .3s cubic-bezier(.34,1.56,.64,1)}
+#sv-like{position:absolute;bottom:62px;right:20px;border:1px solid rgba(255,255,255,.2);border-radius:22px;background:rgba(0,0,0,.5);color:#fff;font-size:14px;cursor:pointer;z-index:6;transition:all .2s;padding:8px 14px;display:none;align-items:center;gap:5px;backdrop-filter:blur(8px)}
+#sv-like:hover{background:rgba(247,84,100,.4);transform:scale(1.06)}
+#sv-like.liked{background:rgba(247,84,100,.5);border-color:rgba(247,84,100,.6)}
 #sv-views{position:absolute;bottom:62px;left:14px;z-index:6;color:rgba(255,255,255,.7);font-size:12px;cursor:pointer}
 #sv-views:hover{color:#fff}
 .sv-viewers-list{position:absolute;bottom:100px;left:14px;right:14px;background:rgba(0,0,0,.7);border-radius:12px;padding:12px;z-index:7;display:none;max-height:200px;overflow-y:auto;animation:fi .2s}
@@ -813,9 +813,26 @@ function aerr(m){document.getElementById('aerr').textContent=m;}
 // ═══════════════════════════════════════════════
 //  PROFILE
 // ═══════════════════════════════════════════════
-async function loadMyProfile(){const{data}=await db.from('profiles').select('*').eq('id',me.id).single();myProfile=data||{id:me.id,display_name:'User',username:'user',avatar_color:COLORS[0],bg_emoji:'✨'};profiles[me.id]=myProfile;renderFoot();}
-function renderFoot(){const av=document.getElementById('me-av');av.style.background=myProfile.avatar_color||COLORS[0];av.textContent=ini(myProfile.display_name);document.getElementById('me-nm').textContent=myProfile.display_name;}
-async function ep(uid){if(profiles[uid])return;const{data}=await db.from('profiles').select('*').eq('id',uid).single();if(data)profiles[uid]=data;}
+async function loadMyProfile(){
+  const{data}=await db.from('profiles').select('*').eq('id',me.id).single();
+  myProfile=data||{id:me.id,display_name:'User',username:'user',avatar_color:COLORS[0],bg_emoji:'✨',role:null};
+  profiles[me.id]=myProfile;
+  renderFoot();
+  // Show admin button if owner
+  if(myProfile.role==='owner'){document.getElementById('me-nm').title='👑 Владелец';}
+}
+function renderFoot(){
+  const av=document.getElementById('me-av');
+  av.style.background=myProfile.avatar_color||COLORS[0];
+  av.textContent=ini(myProfile.display_name);
+  const rl=myProfile.role==='owner'?'👑':myProfile.role==='admin'?'⚡':myProfile.role==='tech'?'🔧':'';
+  document.getElementById('me-nm').textContent=myProfile.display_name+(rl?' '+rl:'');
+}
+async function ep(uid){
+  if(profiles[uid])return;
+  const{data}=await db.from('profiles').select('*').eq('id',uid).single();
+  if(data)profiles[uid]=data;
+}
 function pnm(uid){return profiles[uid]?.display_name||'Пользователь';}
 function pcl(uid){return profiles[uid]?.avatar_color||COLORS[0];}
 function prole(uid){return profiles[uid]?.role||'';}
@@ -846,31 +863,70 @@ async function showProfileCard(uid,e){
   await ep(uid);
   const p=profiles[uid]||{};
   const card=document.getElementById('pcard');
+  const isBanned=p.banned;
   const joined=p.created_at?new Date(p.created_at).toLocaleDateString('ru-RU',{day:'numeric',month:'long',year:'numeric'}):'';
   const bd=p.birthday?new Date(p.birthday).toLocaleDateString('ru-RU',{day:'numeric',month:'long'}):'';
   const roleLabel=p.role==='owner'?'<span class="rb rb-owner">👑 Владелец</span>':p.role==='admin'?'<span class="rb rb-admin">⚡ Админ</span>':p.role==='tech'?'<span class="rb rb-tech">🔧 Тех.Админ</span>':'';
-  card.innerHTML=`
-    <div class="pc-ban" style="background:linear-gradient(135deg,rgba(91,141,239,.2),rgba(139,92,246,.15))">
-      <span style="font-size:70px;opacity:.3">${p.bg_emoji||'✨'}</span>
-      <div class="pc-av" style="background:${p.avatar_color||COLORS[0]}">${ini(p.display_name||'?')}</div>
-    </div>
-    <div class="pc-body">
-      <div class="pc-nm">${esc(p.display_name||'?')} ${roleLabel}</div>
-      <div class="pc-un">@${esc(p.username||'')}</div>
-      ${p.status?`<div class="pc-st">"${esc(p.status)}"</div>`:''}
-      ${p.bio?`<div class="pc-row"><span class="pc-ico">📝</span>${esc(p.bio)}</div>`:''}
-      ${bd?`<div class="pc-row"><span class="pc-ico">🎂</span>${bd}</div>`:''}
-      ${joined?`<div class="pc-row"><span class="pc-ico">📅</span>В Zync с ${joined}</div>`:''}
-      <div class="pc-btns">
-        <button class="pc-btn p" onclick="startDM('${uid}');closePCard()">💬 Написать</button>
-        <button class="pc-btn s" onclick="closePCard()">Закрыть</button>
+
+  // Get like/dislike counts
+  const{data:likeData}=await db.from('profile_likes').select('type').eq('target_id',uid);
+  const likes=(likeData||[]).filter(l=>l.type==='like').length;
+  const myLike=(likeData||[]).find(l=>l.voter_id===me.id);
+
+  if(isBanned){
+    card.innerHTML=`
+      <div class="pc-ban" style="background:linear-gradient(135deg,rgba(247,84,100,.2),rgba(100,20,20,.3))">
+        <span style="font-size:70px;opacity:.2">🚫</span>
+        <div class="pc-av" style="background:#444">?</div>
       </div>
-    </div>
-  `;
-  if(e){const x=Math.min(e.clientX,window.innerWidth-310);const y=Math.min(e.clientY+10,window.innerHeight-400);card.style.cssText=`left:${x}px;top:${y}px`;}
+      <div class="pc-body">
+        <div class="pc-nm" style="color:var(--t3)">Аккаунт удалён</div>
+        <div class="pc-un" style="color:var(--t3)">@${esc(p.username||'')}</div>
+        <div class="pc-st" style="color:var(--danger)">Аккаунт забанен${p.banned_reason?` · ${esc(p.banned_reason)}`:''}</div>
+        <div class="pc-btns"><button class="pc-btn s" onclick="closePCard()">Закрыть</button></div>
+      </div>`;
+  } else {
+    card.innerHTML=`
+      <div class="pc-ban" style="background:linear-gradient(135deg,rgba(91,141,239,.2),rgba(139,92,246,.15))">
+        <span style="font-size:70px;opacity:.3">${p.bg_emoji||'✨'}</span>
+        <div class="pc-av" style="background:${p.avatar_color||COLORS[0]}">${ini(p.display_name||'?')}</div>
+      </div>
+      <div class="pc-body">
+        <div class="pc-nm">${esc(p.display_name||'?')} ${roleLabel}</div>
+        <div class="pc-un">@${esc(p.username||'')}</div>
+        ${p.status?`<div class="pc-st">"${esc(p.status)}"</div>`:''}
+        ${p.bio?`<div class="pc-row"><span class="pc-ico">📝</span>${esc(p.bio)}</div>`:''}
+        ${bd?`<div class="pc-row"><span class="pc-ico">🎂</span>${bd}</div>`:''}
+        ${joined?`<div class="pc-row"><span class="pc-ico">📅</span>В Zync с ${joined}</div>`:''}
+        <div class="pc-row" style="justify-content:space-between;padding-top:8px">
+          <span style="font-size:13px;color:var(--t2)">❤️ <b style="color:var(--text)">${likes}</b> лайков</span>
+          <div style="display:flex;gap:6px">
+            <button onclick="likeProfile('${uid}','like')" id="pc-like-${uid}" style="padding:5px 10px;border:none;border-radius:8px;cursor:pointer;font-size:13px;transition:all .2s;background:${myLike?.type==='like'?'rgba(52,211,153,.25)':'var(--s3)'};color:${myLike?.type==='like'?'var(--ok)':'var(--t2)'};border:1px solid ${myLike?.type==='like'?'var(--ok)':'var(--b2)'}">👍</button>
+            <button onclick="likeProfile('${uid}','dislike')" id="pc-dis-${uid}" style="padding:5px 10px;border:none;border-radius:8px;cursor:pointer;font-size:13px;transition:all .2s;background:${myLike?.type==='dislike'?'rgba(247,84,100,.25)':'var(--s3)'};color:${myLike?.type==='dislike'?'var(--danger)':'var(--t2)'};border:1px solid ${myLike?.type==='dislike'?'var(--danger)':'var(--b2)'}">👎</button>
+          </div>
+        </div>
+        <div class="pc-btns">
+          <button class="pc-btn p" onclick="startDM('${uid}');closePCard()">💬 Написать</button>
+          <button class="pc-btn s" onclick="closePCard()">Закрыть</button>
+        </div>
+      </div>
+    `;
+  }
+  if(e){const x=Math.min(e.clientX,window.innerWidth-310);const y=Math.min(e.clientY+10,window.innerHeight-420);card.style.cssText=`left:${x}px;top:${y}px`;}
   else{card.style.cssText='left:50%;top:50%;transform:translate(-50%,-50%)';}
   card.classList.add('on');
   setTimeout(()=>document.addEventListener('click',closePCard,{once:true}),100);
+}
+async function likeProfile(uid,type){
+  // Toggle
+  const{data:existing}=await db.from('profile_likes').select('type').eq('target_id',uid).eq('voter_id',me.id).single();
+  if(existing?.type===type){
+    await db.from('profile_likes').delete().eq('target_id',uid).eq('voter_id',me.id);
+  } else {
+    await db.from('profile_likes').upsert({target_id:uid,voter_id:me.id,type});
+  }
+  // Refresh card
+  showProfileCard(uid,null);
 }
 function closePCard(){document.getElementById('pcard').classList.remove('on');document.getElementById('pcard').style.transform='';}
 
@@ -885,14 +941,30 @@ function openAdmin(){
   openModal('admin-modal');
 }
 async function adminSearch(q){
-  const{data}=await db.from('profiles').select('*').ilike('display_name',`%${q}%`).neq('id',me.id).limit(20);
+  let query=db.from('profiles').select('*').neq('id',me.id).limit(30);
+  if(q)query=query.ilike('display_name',`%${q}%`);
+  const{data}=await query;
+  // Get dislikes for all users
+  const{data:dislikesData}=await db.from('profile_likes').select('target_id').eq('type','dislike');
+  const dislikeMap={};(dislikesData||[]).forEach(d=>{dislikeMap[d.target_id]=(dislikeMap[d.target_id]||0)+1;});
+  // Sort by dislikes if no query
+  let users=data||[];
+  if(!q)users=[...users].sort((a,b)=>(dislikeMap[b.id]||0)-(dislikeMap[a.id]||0));
+
   const list=document.getElementById('adm-list');list.innerHTML='';
-  (data||[]).forEach(p=>{
+  if(!q&&users.some(u=>dislikeMap[u.id]>0)){
+    const hdr=document.createElement('div');hdr.style.cssText='font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--warn);padding:8px 4px 4px';hdr.textContent='👎 Топ по репортам (дизлайкам)';list.appendChild(hdr);
+  }
+  users.forEach(p=>{
+    const dlCount=dislikeMap[p.id]||0;
     const row=document.createElement('div');row.className='admin-row';
     row.innerHTML=`
       <div class="admin-av" style="background:${p.avatar_color||COLORS[0]}">${ini(p.display_name||'?')}</div>
-      <div><div class="admin-nm">${esc(p.display_name||'?')}</div><div class="admin-em">@${esc(p.username||'')} ${p.banned?'🚫 ЗАБЛОКИРОВАН':''}</div></div>
-      <div class="admin-acts">
+      <div style="flex:1;min-width:0">
+        <div class="admin-nm">${esc(p.display_name||'?')} ${p.role==='owner'?'👑':p.role==='admin'?'⚡':p.role==='tech'?'🔧':''}</div>
+        <div class="admin-em">@${esc(p.username||'')} ${p.banned?'🚫 БАН':''} ${dlCount>0?`<span style="color:var(--danger)">👎${dlCount}</span>`:''}</div>
+      </div>
+      <div class="admin-acts" style="flex-wrap:wrap;gap:4px;justify-content:flex-end">
         <select onchange="setUserRole('${p.id}',this.value)" style="background:var(--s3);border:1px solid var(--b1);border-radius:7px;color:var(--text);font-size:11px;padding:4px 6px">
           <option value="" ${!p.role?'selected':''}>Участник</option>
           <option value="tech" ${p.role==='tech'?'selected':''}>Тех.Админ</option>
@@ -901,13 +973,24 @@ async function adminSearch(q){
         </select>
         <button class="admin-btn ban" onclick="${p.banned?`unbanUser('${p.id}')`:`banUser('${p.id}')`}">${p.banned?'Разбан':'Бан'}</button>
         <button class="admin-btn role" onclick="editNick('${p.id}','${esc(p.display_name||'')}')">✏️ Ник</button>
+        <button class="admin-btn role" onclick="openDMAdmin('${p.id}')" title="Читать чаты" style="background:rgba(139,92,246,.15);color:var(--ac2);border-color:rgba(139,92,246,.3)">💬</button>
+        <button class="admin-btn ban" onclick="deleteAccount('${p.id}','${esc(p.display_name||'')}')" style="background:rgba(0,0,0,.3)">🗑️</button>
+        ${dlCount>0?`<button class="admin-btn role" onclick="clearDislikes('${p.id}')" style="font-size:10px">👎0</button>`:''}
       </div>
     `;
     list.appendChild(row);
   });
 }
-async function setUserRole(uid,role){await db.from('profiles').update({role:role||null}).eq('id',uid);toast('Роль обновлена');adminSearch(v('adm-src'));}
-async function banUser(uid){const reason=prompt('Причина бана:');if(reason===null)return;await db.from('profiles').update({banned:true,banned_reason:reason}).eq('id',uid);toast('Пользователь заблокирован');adminSearch(v('adm-src'));}
+async function clearDislikes(uid){await db.from('profile_likes').delete().eq('target_id',uid).eq('type','dislike');toast('Дизлайки сброшены');adminSearch(v('adm-src'));}
+async function deleteAccount(uid,name){
+  if(!confirm(`Удалить аккаунт ${name}? Это необратимо.`))return;
+  // Ban first with deletion notice
+  await db.from('profiles').update({banned:true,banned_reason:'Аккаунт удалён администратором',display_name:'Удалённый аккаунт'}).eq('id',uid);
+  toast('Аккаунт помечен как удалённый');adminSearch(v('adm-src'));
+}
+function openDMAdmin(uid){closePCard();closeModal('admin-modal');startDM(uid).then(()=>{toast('Открыт чат с пользователем');});}
+async function setUserRole(uid,role){await db.from('profiles').update({role:role||null}).eq('id',uid);if(profiles[uid])profiles[uid].role=role||null;toast('Роль обновлена');adminSearch(v('adm-src'));}
+async function banUser(uid){const reason=prompt('Причина бана:');if(reason===null)return;await db.from('profiles').update({banned:true,banned_reason:reason}).eq('id',uid);toast('Заблокирован');adminSearch(v('adm-src'));}
 async function unbanUser(uid){await db.from('profiles').update({banned:false,banned_reason:null}).eq('id',uid);toast('Разблокирован');adminSearch(v('adm-src'));}
 async function editNick(uid,cur){const nn=prompt('Новый ник:',cur);if(!nn)return;await db.from('profiles').update({display_name:nn}).eq('id',uid);if(profiles[uid])profiles[uid].display_name=nn;toast('Ник изменён');adminSearch(v('adm-src'));}
 
@@ -957,16 +1040,21 @@ function renderDMs(filter=''){
   const dl=document.getElementById('dm-list');dl.innerHTML='';
   const fil=dms.filter(d=>pnm(d.otherId).toLowerCase().includes(filter.toLowerCase()));
   const sorted=[...fil.filter(d=>pinnedChats.includes(d.id)),...fil.filter(d=>!pinnedChats.includes(d.id))];
-  sorted.forEach(d=>{const p=profiles[d.otherId]||{};dl.appendChild(mkConv({id:d.id,name:pnm(d.otherId),sub:'',on:curRoom?.id===d.id&&curRoom?.type==='dm',color:p.avatar_color||COLORS[0],online:onlineSet.has(d.otherId),pinned:pinnedChats.includes(d.id),badge:unread[d.id]||0,onclick:()=>openDM(d)}));});
+  sorted.forEach(d=>{const p=profiles[d.otherId]||{};dl.appendChild(mkConv({id:d.id,name:pnm(d.otherId),sub:'',on:curRoom?.id===d.id&&curRoom?.type==='dm',color:p.avatar_color||COLORS[0],online:onlineSet.has(d.otherId),pinned:pinnedChats.includes(d.id),badge:unread[d.id]||0,roleUid:d.otherId,onclick:()=>openDM(d)}));});
 }
-function mkConv({id,icon,name,sub,on,color,online,pinned,isGrp,badge,onclick:fn}){
-  const d=document.createElement('div');d.className='cv'+(on?' on':'');d.onclick=fn;
+function mkConv({id,icon,name,sub,on,color,online,pinned,isGrp,badge,onclick:fn,roleUid}){
+  const d=document.createElement('div');
+  // Only animate new items, not on re-render
+  d.className='cv'+(on?' on':'');
+  d.onclick=fn;
   const av=document.createElement('div');av.className='cv-av'+(isGrp?' grp':'');av.style.background=color;
   av.innerHTML=icon?`<span style="font-size:${isGrp?'15':'16'}px">${icon}</span>`:ini(name);
   if(online){const dot=document.createElement('div');dot.className='odot';av.appendChild(dot);}
   d.appendChild(av);
   const bd=document.createElement('div');bd.className='cv-bd';
-  const p=profiles[id]||{};const rl=p.role==='owner'?'<span class="rb rb-owner">👑</span>':p.role==='admin'?'<span class="rb rb-admin">⚡</span>':p.role==='tech'?'<span class="rb rb-tech">🔧</span>':'';
+  // Use roleUid for role display (actual user, not conversation id)
+  const rp=roleUid?profiles[roleUid]||{}:{};
+  const rl=rp.role==='owner'?'<span class="rb rb-owner">👑</span>':rp.role==='admin'?'<span class="rb rb-admin">⚡</span>':rp.role==='tech'?'<span class="rb rb-tech">🔧</span>':'';
   bd.innerHTML=`<div class="cv-nm">${esc(name)}${pinned?'<span style="font-size:10px;opacity:.5;margin-left:3px">📌</span>':''}${rl}</div>${sub?`<div class="cv-pre">${esc(sub)}</div>`:''}`;
   d.appendChild(bd);
   if(badge>0){const mt=document.createElement('div');mt.className='cv-mt';mt.innerHTML=`<div class="cv-bdg">${badge>99?'99+':badge}</div>`;d.appendChild(mt);}
@@ -1033,7 +1121,9 @@ function renderMsgs(){
   msgs.forEach(msg=>{
     const d=new Date(msg.created_at).toLocaleDateString('ru-RU',{day:'numeric',month:'long'});
     if(d!==lastDate){const div=document.createElement('div');div.className='day-div';div.textContent=d;area.appendChild(div);lastDate=d;lastUid=null;}
-    area.appendChild(mkMsg(msg,msg.user_id===lastUid));lastUid=msg.user_id;
+    const el=mkMsg(msg,msg.user_id===lastUid);
+    el.style.animation='none'; // no animation on bulk render
+    area.appendChild(el);lastUid=msg.user_id;
   });
   area.scrollTop=area.scrollHeight;
 }
@@ -1055,12 +1145,22 @@ function mkMsg(msg,cont){
   if(msg.reply_to){const orig=msgs.find(m=>m.id===msg.reply_to);if(orig){const op=profiles[orig.user_id]||{};content+=`<div class="m-rep" onclick="scrollToMsg('${orig.id}')"><span class="m-rep-au">${esc(op.display_name||'?')}</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(orig.content||'[медиа]')}</span></div>`;}}
   if(msg.file_url){
     const ft=msg.file_type||'';
-    if(msg.is_sticker){content+=`<img class="m-sticker" src="${msg.file_url}" onerror="this.style.display='none'" alt="стикер">`;}
+    if(msg.is_sticker){
+      // Try local sticker cache first
+      const localData=getStickerCache(msg.id);
+      const src=localData||msg.file_url;
+      content+=`<img class="m-sticker" src="${src}" onerror="this.parentElement.innerHTML='<span style=\\'font-size:12px;color:var(--t3)\\'>🎭 Стикер</span>'" alt="стикер">`;
+      // Cache sticker locally by msg id
+      if(msg.file_url&&!localData)cacheStickerFromUrl(msg.id,msg.file_url);
+    }
     else if(msg.is_circle){content+=`<video class="m-circ" src="${msg.file_url}" onclick="playCircle(this)" loop muted playsinline></video>`;}
     else if(ft.startsWith('image/')){content+=`<img class="m-img" src="${msg.file_url}" loading="lazy" onclick="openLB('${msg.file_url}')">`;}
     else if(ft.startsWith('video/')){content+=`<video class="m-vid" controls preload="metadata" playsinline><source src="${msg.file_url}" type="${ft}"></video>`;}
     else if(ft.startsWith('audio/')){content+=`<audio class="m-aud" controls><source src="${msg.file_url}" type="${ft}"></audio>`;}
     else{content+=`<a class="m-fl" href="${msg.file_url}" target="_blank" download><span class="m-fl-ico">${fIco(ft,msg.file_name||'')}</span><div><div class="m-fl-nm">${esc(msg.file_name||'Файл')}</div>${msg.file_size?`<div class="m-fl-sz">${fmtSz(msg.file_size)}</div>`:''}</div></a>`;}
+  } else if(!msg.content&&(msg.file_type||msg.file_name||msg.is_sticker||msg.is_circle)) {
+    // File was deleted
+    content+=`<div class="m-sys">🗑 ${msg.is_sticker?'Стикер':msg.is_circle?'Кружок':'Медиа'} удалено системой</div>`;
   }
   const isSystem=msg.content&&msg.content.startsWith('🗑');
   if(msg.content){content+=`<div class="${isSystem?'m-sys':'m-tx'}">${isSystem?esc(msg.content):fmtText(msg.content)}${msg.edited&&!isSystem?'<span class="m-ed">(ред.)</span>':''}</div>`;}
@@ -1093,17 +1193,21 @@ function subMsgs(rid,type){
         area.appendChild(mkMsg(p.new,cont));area.scrollTop=area.scrollHeight;
         if(p.new.user_id!==me.id){
           playSound('recv');sendNotif(p.new);
-          if(!document.hasFocus()||curRoom?.id!==rid)incUnread(rid);
-          // Auto mark as read if room open
-          if(curRoom?.id===rid){const rb=[...(p.new.read_by||[]),me.id];await db.from(table).update({read_by:rb}).eq('id',p.new.id);p.new.read_by=rb;}
-          // Sticker: schedule server cleanup after delivery
-          if(p.new.is_sticker&&p.new.file_url){
-            scheduleSticker(p.new.id,table,p.new.file_url,p.new.user_id);
+          // Increment unread if not in this room or not focused
+          if(!document.hasFocus()||curRoom?.id!==rid){
+            incUnread(rid);
           }
-          // Circle: same
-          if(p.new.is_circle&&p.new.file_url){
-            scheduleCircleCleanup(p.new.id,table,p.new.file_url);
+          // Auto mark as read if chat is open and focused
+          if(curRoom?.id===rid&&document.hasFocus()){
+            const rb=[...(p.new.read_by||[]),me.id];
+            await db.from(table).update({read_by:rb}).eq('id',p.new.id);
+            p.new.read_by=rb;
           }
+          if(p.new.is_sticker&&p.new.file_url) scheduleSticker(p.new.id,table,p.new.file_url,p.new.user_id);
+          if(p.new.is_circle&&p.new.file_url) scheduleCircleCleanup(p.new.id,table,p.new.file_url);
+        } else {
+          // My own message - start polling for read receipts
+          if(curRoom?.type==='dm') watchReadReceipt(p.new.id,table);
         }
       } else if(p.eventType==='UPDATE'){
         const i=msgs.findIndex(m=>m.id===p.new.id);if(i>=0){msgs[i]=p.new;const el=document.querySelector(`[data-id="${p.new.id}"]`);if(el){const ne=mkMsg(p.new,el.classList.contains('cont'));el.replaceWith(ne);}}
@@ -1118,9 +1222,33 @@ function subMsgs(rid,type){
       clearTimeout(typUsers[payload.uid]?.to);typUsers[payload.uid].to=setTimeout(()=>{delete typUsers[payload.uid];renderTyp();},3000);
     }).subscribe();
 }
-let typUsers={};
-function renderTyp(){const nms=Object.values(typUsers).map(u=>u.name);document.getElementById('typing').textContent=nms.length?nms.join(', ')+(nms.length===1?' печатает...':' печатают...'):'';}
+// Watch for read receipts on sender's messages
+function watchReadReceipt(msgId,table){
+  // Poll once after 3s, then 10s, then 30s
+  [3000,10000,30000].forEach(delay=>{
+    setTimeout(async()=>{
+      const{data}=await db.from(table).select('read_by').eq('id',msgId).single();
+      if(!data)return;
+      const readByOther=(data.read_by||[]).some(uid=>uid!==me.id);
+      const el=document.querySelector(`[data-id="${msgId}"] .m-tks`);
+      if(el&&readByOther){el.classList.add('read');el.textContent=' ✓✓';}
+      // Update in msgs array
+      const msg=msgs.find(m=>m.id===msgId);
+      if(msg)msg.read_by=data.read_by;
+    },delay);
+  });
+}
 
+// Mark unread as read when window gets focus
+window.addEventListener('focus',()=>{
+  if(curRoom&&unread[curRoom.id]>0){
+    markRead(curRoom.id);
+    // Mark messages as read
+    const{table,field}=msgInfo(curRoom.type);
+    const rv=curRoom.type==='fav'?me.id:curRoom.id;
+    markMsgsRead(curRoom.type,rv);
+  }
+});
 // ═══════════════════════════════════════════════
 //  CTX MENU
 // ═══════════════════════════════════════════════
@@ -1257,21 +1385,22 @@ async function checkMedia(){
 // ═══════════════════════════════════════════════
 //  STICKER SYSTEM — cleanup after recipient views
 // ═══════════════════════════════════════════════
+function getStickerCache(msgId){try{return localStorage.getItem('z_stkc_'+msgId)||null;}catch(e){return null;}}
+function cacheStickerFromUrl(msgId,url){
+  // Fetch image and store as base64 in localStorage
+  fetch(url).then(r=>r.blob()).then(blob=>{const reader=new FileReader();reader.onload=e=>{try{localStorage.setItem('z_stkc_'+msgId,e.target.result);}catch(ex){}};reader.readAsDataURL(blob);}).catch(()=>{});
+}
 function scheduleSticker(msgId,table,fileUrl,senderId){
-  // Register that we're recipient and have received the sticker
+  // Cache for recipient locally
   if(senderId!==me.id){
-    // Save sticker locally first
-    tryLoadStickerLocally(fileUrl,msgId);
-    // Then tell server we've received it — schedule cleanup
+    cacheStickerFromUrl(msgId,fileUrl);
+    // Delete from server after 10 seconds (enough time to cache)
     setTimeout(async()=>{
       await delStorFile(fileUrl);
       await db.from(table).update({file_url:null}).eq('id',msgId);
-    },5000); // 5 seconds after delivery
+    },10000);
   }
-}
-function tryLoadStickerLocally(url,msgId){
-  // Pre-load the image so browser caches it
-  const img=new Image();img.src=url;
+  // Sender: DON'T delete - let them keep the sticker visible via their local base64
 }
 function scheduleCircleCleanup(msgId,table,fileUrl){
   // Delete circle from server after recipient loads it
@@ -1327,16 +1456,21 @@ async function showSV(i){
   const fill=document.getElementById(`svf${i}`);const dur=s.media_type?.startsWith('video/')?10000:5000;let start=null;
   const tick=ts=>{if(!start)start=ts;const pct=Math.min(100,(ts-start)/dur*100);if(fill)fill.style.width=pct+'%';if(pct<100)svRaf=requestAnimationFrame(tick);else{svIdx++;showSV(svIdx);}};
   svRaf=requestAnimationFrame(tick);
-  // Check if liked
-  const{data:lk}=await db.from('story_likes').select('id').eq('story_id',s.id).eq('user_id',me.id).single();
-  const lb=document.getElementById('sv-like');lb.classList.toggle('liked',!!lk);
+  // Check if liked + count
+  const{data:likeData}=await db.from('story_likes').select('user_id').eq('story_id',s.id);
+  const likeCount=(likeData||[]).length;
+  const myLiked=!!(likeData||[]).find(l=>l.user_id===me.id);
+  const lb=document.getElementById('sv-like');
+  lb.classList.toggle('liked',myLiked);
+  lb.innerHTML=`${myLiked?'❤️':'🤍'} ${likeCount||''}`;
+  lb.style.display=s.user_id!==me.id?'flex':'none';
   // Views
   const{count}=await db.from('story_views').select('*',{count:'exact',head:true}).eq('story_id',s.id);
   document.getElementById('sv-vcnt').textContent=count||0;
   document.getElementById('sv-views').style.display=s.user_id===me.id?'block':'none';
   // Delete own story button
   const existDel=document.getElementById('sv-del-own');if(existDel)existDel.remove();
-  if(s.user_id===me.id){const db2=document.createElement('button');db2.id='sv-del-own';db2.style.cssText='position:absolute;top:12px;left:14px;background:rgba(247,84,100,.5);border:none;color:#fff;font-size:12px;font-weight:700;cursor:pointer;z-index:6;padding:5px 10px;border-radius:20px';db2.textContent='🗑 Удалить';db2.onclick=()=>deleteMyStory(s.id,s.media_url);document.getElementById('sv').appendChild(db2);}
+  if(s.user_id===me.id){const db2=document.getElementById('sv-del-own')||document.createElement('button');db2.id='sv-del-own';db2.style.cssText='position:absolute;bottom:70px;right:80px;background:rgba(247,84,100,.6);border:none;color:#fff;font-size:12px;font-weight:700;cursor:pointer;z-index:6;padding:6px 14px;border-radius:20px;backdrop-filter:blur(8px)';db2.textContent='🗑 Удалить историю';db2.onclick=()=>deleteMyStory(s.id,s.media_url);if(!document.getElementById('sv-del-own'))document.getElementById('sv').appendChild(db2);}
   // Mark as viewed
   await db.from('story_views').upsert({story_id:s.id,viewer_id:me.id});
 }
@@ -1359,10 +1493,20 @@ async function toggleViewers(){
   }
 }
 async function likeStory(){
-  if(!svStory)return;
+  if(!svStory||svStory.user_id===me.id)return;
   const lb=document.getElementById('sv-like');
-  if(lb.classList.contains('liked')){await db.from('story_likes').delete().eq('story_id',svStory.id).eq('user_id',me.id);lb.classList.remove('liked');}
-  else{await db.from('story_likes').upsert({story_id:svStory.id,user_id:me.id});lb.classList.add('liked');}
+  const isLiked=lb.classList.contains('liked');
+  if(isLiked){
+    await db.from('story_likes').delete().eq('story_id',svStory.id).eq('user_id',me.id);
+  } else {
+    await db.from('story_likes').upsert({story_id:svStory.id,user_id:me.id});
+  }
+  // Refresh like count
+  const{data:likeData}=await db.from('story_likes').select('user_id').eq('story_id',svStory.id);
+  const likeCount=(likeData||[]).length;
+  const myLiked=!!(likeData||[]).find(l=>l.user_id===me.id);
+  lb.classList.toggle('liked',myLiked);
+  lb.innerHTML=`${myLiked?'❤️':'🤍'} ${likeCount||''}`;
 }
 async function replyToStory(){
   if(!svStory)return;
@@ -1414,20 +1558,24 @@ async function startCirc(){
   }catch(e){toast('Нет доступа к камере: '+e.message);}
 }
 async function sendCirc(){
-  clearTimeout(circTO);clearInterval(circInterval);circMR?.stop();
-  await new Promise(res=>setTimeout(res,300)); // wait for last chunk
-  if(!circStream)return;
+  clearTimeout(circTO);clearInterval(circInterval);
+  if(!circMR||!circStream){document.getElementById('circ-rec').classList.remove('on');return;}
+  // Wait for recorder to fully stop and flush all chunks
+  await new Promise(res=>{circMR.onstop=res;try{circMR.stop();}catch(e){res();}});
+  await new Promise(res=>setTimeout(res,200));
   circStream.getTracks().forEach(t=>t.stop());
   document.getElementById('circ-rec').classList.remove('on');
-  if(!circChunks.length)return;
+  if(!circChunks.length){toast('Запись пуста');circChunks=[];circStream=null;circMR=null;return;}
   const blob=new Blob(circChunks,{type:'video/webm'});
   const file=new File([blob],`circle_${Date.now()}.webm`,{type:'video/webm'});
   toast('Отправляем кружок...');
+  circChunks=[];const savedRoom=curRoom;
   const fd=await uploadFile(file,{skipCompress:true,extra:{is_circle:true}});
-  if(!fd)return;
-  const{table,field}=msgInfo(curRoom.type);const rv=curRoom.type==='fav'?me.id:curRoom.id;
-  await db.from(table).insert({[field]:rv,user_id:me.id,...fd,read_by:[]});
-  playSound('send');circChunks=[];circStream=null;circMR=null;
+  if(!fd){circStream=null;circMR=null;return;}
+  const{table,field}=msgInfo(savedRoom.type);const rv=savedRoom.type==='fav'?me.id:savedRoom.id;
+  const{error}=await db.from(table).insert({[field]:rv,user_id:me.id,...fd,read_by:[]});
+  if(error){toast('Ошибка: '+error.message);}else{playSound('send');}
+  circStream=null;circMR=null;
 }
 function cancelCirc(){
   clearTimeout(circTO);clearInterval(circInterval);circMR?.stop();circStream?.getTracks().forEach(t=>t.stop());
@@ -1448,13 +1596,31 @@ function subscribePresence(){const ch=db.channel('pres').on('presence',{event:'s
 // ═══════════════════════════════════════════════
 //  NOTIFICATIONS — Push via Service Worker
 // ═══════════════════════════════════════════════
-async function reqNotifPerm(){if(!('Notification'in window))return;const p=await Notification.requestPermission();if(p==='granted'){notifEnabled=true;sls('z_notif','1');}}
+async function reqNotifPerm(){
+  if(!('Notification'in window))return;
+  const p=await Notification.requestPermission();
+  if(p==='granted'){notifEnabled=true;sls('z_notif','1');toast('Уведомления включены ✓');}
+  else{toast('Разреши уведомления в настройках браузера');}
+}
 function sendNotif(msg){
   if(!notifEnabled)return;
-  if(document.hasFocus()&&curRoom?.id===(msg.conversation_id||msg.channel_id||msg.user_id))return;
+  // Don't notify if this chat is open AND window is focused
+  const rid=msg.conversation_id||msg.channel_id||msg.user_id;
+  if(document.hasFocus()&&curRoom?.id===rid)return;
   if(Notification.permission!=='granted')return;
-  const name=pnm(msg.user_id);const text=msg.content||(msg.file_name?`📎 ${msg.file_name}`:msg.is_sticker?'🎭 Стикер':msg.is_circle?'🎥 Кружок':'[медиа]');
-  try{const n=new Notification(`Zync — ${name}`,{body:text,tag:`zync-${me.id}`,renotify:true,icon:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 38 38"><rect width="38" height="38" rx="11" fill="%235b8def"/></svg>'});n.onclick=()=>{window.focus();n.close();};setTimeout(()=>n.close(),8000);}catch(e){}
+  const name=pnm(msg.user_id);
+  const body=msg.content||(msg.is_sticker?'🎭 Стикер':msg.is_circle?'🎥 Кружок':msg.file_name?`📎 ${msg.file_name}`:'[медиа]');
+  try{
+    const n=new Notification(`💬 ${name}`,{
+      body,
+      tag:`zync-${rid}`,
+      renotify:true,
+      silent:false,
+      icon:`data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 38 38'><rect width='38' height='38' rx='11' fill='%235b8def'/><text y='26' x='7' font-size='22'>💬</text></svg>`
+    });
+    n.onclick=()=>{window.focus();n.close();};
+    setTimeout(()=>n.close(),8000);
+  }catch(e){}
 }
 function setNotifs(on){notifEnabled=on;sls('z_notif',on?'1':'0');if(on)reqNotifPerm();}
 
@@ -1483,7 +1649,10 @@ function applyRoomTheme(){const t=curRoom?chatThemes[curRoom.id]||{}:{};const bg
 //  STICKERS
 // ═══════════════════════════════════════════════
 function buildStickers(){const g=document.getElementById('stk-grid');if(!g)return;g.innerHTML='';for(let i=0;i<3;i++){const slot=document.createElement('div');slot.className='stk-slot'+(stickers[i]?'':' empty');if(stickers[i]){const img=document.createElement('img');img.src=stickers[i].data;slot.appendChild(img);slot.onclick=()=>sendSticker(i);}else{slot.textContent='+';slot.onclick=()=>addSticker(i);}slot.addEventListener('contextmenu',e=>{e.preventDefault();if(stickers[i])removeSticker(i);});let pressTO;slot.addEventListener('touchstart',()=>{if(stickers[i])pressTO=setTimeout(()=>removeSticker(i),600)},{passive:true});slot.addEventListener('touchend',()=>clearTimeout(pressTO),{passive:true});g.appendChild(slot);}}
-function addSticker(idx){const inp=document.createElement('input');inp.type='file';inp.accept='image/*';inp.onchange=()=>{const file=inp.files[0];if(!file)return;if(file.size>512*1024)return toast('Стикер макс. 512KB');const r=new FileReader();r.onload=e=>{stickers[idx]={name:file.name,data:e.target.result};sls('z_stk',JSON.stringify(stickers));buildStickers();toast('Стикер добавлен ✓');};r.readAsDataURL(file);};inp.click();}
+function addSticker(idx){const inp=document.createElement('input');inp.type='file';inp.accept='image/*';inp.onchange=async()=>{const file=inp.files[0];if(!file)return;toast('Сжимаем стикер...');const compressed=await compressStickerImg(file);const r=new FileReader();r.onload=e=>{stickers[idx]={name:file.name,data:e.target.result};sls('z_stk',JSON.stringify(stickers));buildStickers();toast('Стикер добавлен ✓');};r.readAsDataURL(compressed);};inp.click();}
+async function compressStickerImg(file){
+  return new Promise(res=>{const r=new FileReader();r.onload=e=>{const img=new Image();img.onload=()=>{const canvas=document.createElement('canvas');const MAX=200;let w=img.width,h=img.height;if(w>MAX||h>MAX){if(w>h){h=Math.round(h*MAX/w);w=MAX;}else{w=Math.round(w*MAX/h);h=MAX;}}canvas.width=w;canvas.height=h;canvas.getContext('2d').drawImage(img,0,0,w,h);let q=0.8;const tryC=()=>{canvas.toBlob(blob=>{if(!blob||q<0.1){res(new File([blob||new Blob()],file.name,{type:'image/png'}));return;}if(blob.size<=512*1024){res(new File([blob],file.name.replace(/\.[^.]+$/,'.jpg'),{type:'image/jpeg'}));}else{q-=0.15;tryC();}},`image/jpeg`,q);};tryC();};img.src=e.target.result;};r.readAsDataURL(file);});
+}
 function removeSticker(idx){if(!confirm('Удалить стикер?'))return;stickers.splice(idx,1);sls('z_stk',JSON.stringify(stickers));buildStickers();}
 async function sendSticker(idx){
   if(!curRoom||!stickers[idx])return;
@@ -1577,4 +1746,4 @@ function sls(k,v){localStorage.setItem(k,v);}
 init();
 </script>
 </body>
-</html>
+                                                                                                                                                                                                                                                                                              </html>
