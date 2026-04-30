@@ -717,10 +717,11 @@ body.bubble .msg.cont:not(.mine){padding-left:46px}
   <div id="circ-wrap">
     <video id="circ-preview" autoplay muted playsinline></video>
     <div id="circ-timer">0:00</div>
-    <div id="circ-hint">Идёт запись кружка · максимум 1 минута</div>
+    <div id="circ-hint">Идёт запись · максимум 1 минута</div>
     <div class="circ-acts">
-      <button class="circ-act cancel" onclick="cancelCirc()">Отмена</button>
-      <button class="circ-act send-c" onclick="sendCirc()">Отправить ✓</button>
+      <button class="circ-act cancel" onclick="cancelCirc()">✕ Отмена</button>
+      <button class="circ-act cancel" onclick="switchCircCamera()" style="background:rgba(255,255,255,.2);padding:12px 16px">🔄</button>
+      <button class="circ-act send-c" onclick="sendCirc()">✓ Отправить</button>
     </div>
   </div>
 </div>
@@ -849,9 +850,12 @@ function openMyProfile(){
 }
 async function saveProfile(){
   const fn=v('p-fn'),ln=v('p-ln'),un=v('p-un'),bio=document.getElementById('p-bio').value,bd=v('p-bd'),st=v('p-st'),npw=v('p-pw');
+  if(!fn)return toast('Введите имя');
+  if(hasMat(fn)||hasMat(ln||''))return toast('❌ Недопустимое имя');
   const dn=fn+(ln?' '+ln:'');
   const upd={display_name:dn,first_name:fn,last_name:ln||null,username:un||myProfile.username,bio:bio||null,birthday:bd||null,status:st||null,avatar_color:myProfile.avatar_color,bg_emoji:myProfile.bg_emoji||'✨'};
-  await db.from('profiles').update(upd).eq('id',me.id);
+  const{error}=await db.from('profiles').update(upd).eq('id',me.id);
+  if(error)return toast('Ошибка: '+error.message);
   Object.assign(myProfile,upd);profiles[me.id]={...myProfile};
   if(npw&&npw.length>=6){await db.auth.updateUser({password:npw});toast('Пароль изменён ✓');}
   renderFoot();closeModal('profile-modal');toast('Профиль сохранён ✓');
@@ -935,64 +939,112 @@ function closePCard(){document.getElementById('pcard').classList.remove('on');do
 // ═══════════════════════════════════════════════
 function openAdmin(){
   if(myProfile?.role!=='owner')return toast('Только для Владельца');
-  document.getElementById('adm-list').innerHTML='';
+  document.getElementById('adm-list').innerHTML='<div style="display:flex;justify-content:center;padding:20px"><div class="spin"></div></div>';
   document.getElementById('adm-src').value='';
   adminSearch('');
   openModal('admin-modal');
 }
 async function adminSearch(q){
-  let query=db.from('profiles').select('*').neq('id',me.id).limit(30);
-  if(q)query=query.ilike('display_name',`%${q}%`);
-  const{data}=await query;
-  // Get dislikes for all users
+  // Force fresh data - clear cache
+  let query=db.from('profiles').select('id,display_name,username,avatar_color,role,banned,banned_reason').neq('id',me.id).limit(50);
+  if(q.trim())query=query.or(`display_name.ilike.%${q}%,username.ilike.%${q}%`);
+  const{data,error}=await query;
+  if(error){document.getElementById('adm-list').innerHTML=`<div style="color:var(--danger);padding:10px">Ошибка: ${error.message}</div>`;return;}
+
   const{data:dislikesData}=await db.from('profile_likes').select('target_id').eq('type','dislike');
   const dislikeMap={};(dislikesData||[]).forEach(d=>{dislikeMap[d.target_id]=(dislikeMap[d.target_id]||0)+1;});
-  // Sort by dislikes if no query
+
   let users=data||[];
-  if(!q)users=[...users].sort((a,b)=>(dislikeMap[b.id]||0)-(dislikeMap[a.id]||0));
+  if(!q.trim())users=[...users].sort((a,b)=>(dislikeMap[b.id]||0)-(dislikeMap[a.id]||0));
 
   const list=document.getElementById('adm-list');list.innerHTML='';
-  if(!q&&users.some(u=>dislikeMap[u.id]>0)){
-    const hdr=document.createElement('div');hdr.style.cssText='font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--warn);padding:8px 4px 4px';hdr.textContent='👎 Топ по репортам (дизлайкам)';list.appendChild(hdr);
-  }
+  if(!users.length){list.innerHTML='<div style="color:var(--t3);padding:10px;text-align:center">Пусто</div>';return;}
+
   users.forEach(p=>{
     const dlCount=dislikeMap[p.id]||0;
+    const curRole=p.role||'';
     const row=document.createElement('div');row.className='admin-row';
     row.innerHTML=`
       <div class="admin-av" style="background:${p.avatar_color||COLORS[0]}">${ini(p.display_name||'?')}</div>
-      <div style="flex:1;min-width:0">
-        <div class="admin-nm">${esc(p.display_name||'?')} ${p.role==='owner'?'👑':p.role==='admin'?'⚡':p.role==='tech'?'🔧':''}</div>
-        <div class="admin-em">@${esc(p.username||'')} ${p.banned?'🚫 БАН':''} ${dlCount>0?`<span style="color:var(--danger)">👎${dlCount}</span>`:''}</div>
+      <div style="flex:1;min-width:0;overflow:hidden">
+        <div class="admin-nm" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.display_name||'?')} ${p.role==='owner'?'👑':p.role==='admin'?'⚡':p.role==='tech'?'🔧':''}</div>
+        <div class="admin-em">@${esc(p.username||'')} ${p.banned?'🚫':''} ${dlCount>0?`<span style="color:var(--danger)">👎${dlCount}</span>`:''}</div>
       </div>
-      <div class="admin-acts" style="flex-wrap:wrap;gap:4px;justify-content:flex-end">
-        <select onchange="setUserRole('${p.id}',this.value)" style="background:var(--s3);border:1px solid var(--b1);border-radius:7px;color:var(--text);font-size:11px;padding:4px 6px">
-          <option value="" ${!p.role?'selected':''}>Участник</option>
-          <option value="tech" ${p.role==='tech'?'selected':''}>Тех.Админ</option>
-          <option value="admin" ${p.role==='admin'?'selected':''}>Админ</option>
-          <option value="owner" ${p.role==='owner'?'selected':''}>Владелец</option>
+      <div class="admin-acts" style="flex-wrap:wrap;gap:4px;justify-content:flex-end;flex-shrink:0">
+        <select id="role-sel-${p.id}" style="background:var(--s3);border:1px solid var(--b1);border-radius:7px;color:var(--text);font-size:11px;padding:4px 6px;cursor:pointer">
+          <option value="">Участник</option>
+          <option value="tech">Тех.Админ</option>
+          <option value="admin">Админ</option>
+          <option value="owner">Владелец</option>
         </select>
-        <button class="admin-btn ban" onclick="${p.banned?`unbanUser('${p.id}')`:`banUser('${p.id}')`}">${p.banned?'Разбан':'Бан'}</button>
-        <button class="admin-btn role" onclick="editNick('${p.id}','${esc(p.display_name||'')}')">✏️ Ник</button>
-        <button class="admin-btn role" onclick="openDMAdmin('${p.id}')" title="Читать чаты" style="background:rgba(139,92,246,.15);color:var(--ac2);border-color:rgba(139,92,246,.3)">💬</button>
-        <button class="admin-btn ban" onclick="deleteAccount('${p.id}','${esc(p.display_name||'')}')" style="background:rgba(0,0,0,.3)">🗑️</button>
-        ${dlCount>0?`<button class="admin-btn role" onclick="clearDislikes('${p.id}')" style="font-size:10px">👎0</button>`:''}
+        <button class="admin-btn role" onclick="applyRole('${p.id}')">✓ Роль</button>
+        <button class="admin-btn ${p.banned?'role':'ban'}" onclick="${p.banned?`unbanUser('${p.id}')`:`banUser('${p.id}')`}">${p.banned?'Разбан':'Бан'}</button>
+        <button class="admin-btn role" onclick="editNick('${p.id}')">✏️</button>
+        <button class="admin-btn ban" onclick="deleteAccount('${p.id}','${esc(p.display_name||'')}')">🗑️</button>
+        ${dlCount>0?`<button class="admin-btn role" onclick="clearDislikes('${p.id}')">👎✕</button>`:''}
       </div>
     `;
     list.appendChild(row);
+    // Set current role value AFTER appending
+    const sel=document.getElementById(`role-sel-${p.id}`);
+    if(sel)sel.value=curRole;
   });
 }
-async function clearDislikes(uid){await db.from('profile_likes').delete().eq('target_id',uid).eq('type','dislike');toast('Дизлайки сброшены');adminSearch(v('adm-src'));}
-async function deleteAccount(uid,name){
-  if(!confirm(`Удалить аккаунт ${name}? Это необратимо.`))return;
-  // Ban first with deletion notice
-  await db.from('profiles').update({banned:true,banned_reason:'Аккаунт удалён администратором',display_name:'Удалённый аккаунт'}).eq('id',uid);
-  toast('Аккаунт помечен как удалённый');adminSearch(v('adm-src'));
+async function applyRole(uid){
+  const sel=document.getElementById(`role-sel-${uid}`);
+  if(!sel)return;
+  const role=sel.value||null;
+  const{error}=await db.from('profiles').update({role}).eq('id',uid);
+  if(error){toast('Ошибка: '+error.message);return;}
+  if(profiles[uid])profiles[uid].role=role;
+  toast('Роль обновлена ✓');
+  adminSearch(v('adm-src'));
+  renderAll();
 }
-function openDMAdmin(uid){closePCard();closeModal('admin-modal');startDM(uid).then(()=>{toast('Открыт чат с пользователем');});}
-async function setUserRole(uid,role){await db.from('profiles').update({role:role||null}).eq('id',uid);if(profiles[uid])profiles[uid].role=role||null;toast('Роль обновлена');adminSearch(v('adm-src'));}
-async function banUser(uid){const reason=prompt('Причина бана:');if(reason===null)return;await db.from('profiles').update({banned:true,banned_reason:reason}).eq('id',uid);toast('Заблокирован');adminSearch(v('adm-src'));}
-async function unbanUser(uid){await db.from('profiles').update({banned:false,banned_reason:null}).eq('id',uid);toast('Разблокирован');adminSearch(v('adm-src'));}
-async function editNick(uid,cur){const nn=prompt('Новый ник:',cur);if(!nn)return;await db.from('profiles').update({display_name:nn}).eq('id',uid);if(profiles[uid])profiles[uid].display_name=nn;toast('Ник изменён');adminSearch(v('adm-src'));}
+async function banUser(uid){
+  const reason=prompt('Причина бана:');if(reason===null)return;
+  const{error}=await db.from('profiles').update({banned:true,banned_reason:reason}).eq('id',uid);
+  if(error)return toast('Ошибка: '+error.message);
+  if(profiles[uid]){profiles[uid].banned=true;profiles[uid].banned_reason=reason;}
+  toast('Заблокирован 🚫');adminSearch(v('adm-src'));
+}
+async function unbanUser(uid){
+  const{error}=await db.from('profiles').update({banned:false,banned_reason:null}).eq('id',uid);
+  if(error)return toast('Ошибка: '+error.message);
+  if(profiles[uid]){profiles[uid].banned=false;profiles[uid].banned_reason=null;}
+  toast('Разблокирован ✓');adminSearch(v('adm-src'));
+}
+async function editNick(uid){
+  const{data}=await db.from('profiles').select('display_name').eq('id',uid).single();
+  const cur=data?.display_name||'';
+  const nn=prompt('Новый ник:',cur);
+  if(!nn||!nn.trim())return;
+  if(hasMat(nn))return toast('Недопустимое название');
+  const{error}=await db.from('profiles').update({display_name:nn.trim()}).eq('id',uid);
+  if(error)return toast('Ошибка: '+error.message);
+  if(profiles[uid])profiles[uid].display_name=nn.trim();
+  toast('Ник изменён ✓');adminSearch(v('adm-src'));renderAll();
+}
+async function deleteAccount(uid,name){
+  if(!confirm(`Удалить аккаунт "${name}"? Это необратимо — аккаунт будет навсегда заблокирован.`))return;
+  const{error}=await db.from('profiles').update({
+    banned:true,
+    banned_reason:'Аккаунт удалён администратором',
+    display_name:'Удалённый аккаунт',
+    username:'deleted_'+Date.now(),
+    bio:null,status:null
+  }).eq('id',uid);
+  if(error)return toast('Ошибка: '+error.message);
+  // Also delete their messages and conversations
+  toast('Аккаунт удалён ✓');
+  if(profiles[uid])profiles[uid].banned=true;
+  adminSearch(v('adm-src'));renderAll();
+}
+async function clearDislikes(uid){
+  await db.from('profile_likes').delete().eq('target_id',uid).eq('type','dislike');
+  toast('Дизлайки сброшены');adminSearch(v('adm-src'));
+}
+function openDMAdmin(uid){closeModal('admin-modal');startDM(uid);}
 
 // ═══════════════════════════════════════════════
 //  CHANNELS
@@ -1004,10 +1056,34 @@ function renderChannels(filter=''){
   const sorted=[...fil.filter(c=>pinnedChats.includes(c.id)),...fil.filter(c=>!pinnedChats.includes(c.id))];
   sorted.forEach(ch=>{list.appendChild(mkConv({id:ch.id,icon:ch.type==='group'?'👥':(ch.type==='private'?'🔒':'#'),name:ch.name,sub:ch.description||'',on:curRoom?.id===ch.id,color:ch.type==='group'?'#8b5cf6':'#5b8def',isGrp:true,pinned:pinnedChats.includes(ch.id),badge:unread[ch.id]||0,onclick:()=>openChannel(ch)}));});
 }
-async function createChannel(){const name=v('ch-nm'),desc=v('ch-dc'),type=document.getElementById('ch-tp').value;if(!name)return toast('Введите название');const{data,error}=await db.from('channels').insert({name:name.replace(/\s+/g,'-').toLowerCase(),description:desc,type,created_by:me.id}).select().single();if(error)return toast('Ошибка: '+error.message);channels.push(data);renderChannels();closeModal('ch-modal');openChannel(data);document.getElementById('ch-nm').value='';document.getElementById('ch-dc').value='';}
+async function createChannel(){
+  const name=v('ch-nm'),desc=v('ch-dc'),type=document.getElementById('ch-tp').value;
+  if(!name)return toast('Введите название');
+  if(hasMat(name))return toast('❌ Недопустимое название');
+  const{data,error}=await db.from('channels').insert({name:name.replace(/\s+/g,'-').toLowerCase(),description:desc,type,created_by:me.id}).select().single();
+  if(error)return toast('Ошибка: '+error.message);
+  channels.push(data);renderChannels();closeModal('ch-modal');openChannel(data);
+  document.getElementById('ch-nm').value='';document.getElementById('ch-dc').value='';
+}
 
 // GROUPS
-async function createGroup(){const name=v('grp-nm'),desc=v('grp-dc');if(!name)return toast('Введите название');const{data:ch,error}=await db.from('channels').insert({name,description:desc,type:'group',created_by:me.id}).select().single();if(error)return toast('Ошибка: '+error.message);const mems=[{channel_id:ch.id,user_id:me.id,role:'owner'}];grpSel.forEach(uid=>mems.push({channel_id:ch.id,user_id:uid,role:'member'}));await db.from('channel_members').insert(mems);channels.push(ch);renderChannels();closeModal('grp-modal');grpSel=[];openChannel(ch);}
+async function createGroup(){
+  const name=v('grp-nm'),desc=v('grp-dc');
+  if(!name)return toast('Введите название');
+  if(hasMat(name))return toast('❌ Недопустимое название');
+  const{data:ch,error}=await db.from('channels').insert({name,description:desc,type:'group',created_by:me.id}).select().single();
+  if(error)return toast('Ошибка: '+error.message);
+  const mems=[{channel_id:ch.id,user_id:me.id,role:'owner'}];
+  grpSel.forEach(uid=>mems.push({channel_id:ch.id,user_id:uid,role:'member'}));
+  await db.from('channel_members').insert(mems);
+  // Send invites to selected users
+  for(const uid of grpSel){
+    await sendGroupInvite(ch.id,name,uid);
+  }
+  channels.push(ch);renderChannels();closeModal('grp-modal');grpSel=[];
+  document.getElementById('grp-nm').value='';document.getElementById('grp-chips').innerHTML='';
+  openChannel(ch);
+}
 function openChatSettings(){
   if(!curRoom)return;
   const isMine=curRoom.created_by===me.id;
@@ -1021,10 +1097,39 @@ function openChatSettings(){
 async function loadGrpMems(){const{data}=await db.from('channel_members').select('*').eq('channel_id',curRoom.id);const c=document.getElementById('cs-mems');if(!c)return;c.innerHTML='';const isMine=curRoom.created_by===me.id;for(const m of(data||[])){await ep(m.user_id);const p=profiles[m.user_id]||{};const chip=document.createElement('div');chip.className='mchip';const rl=m.role==='owner'?'<span class="rb rb-owner">👑</span>':m.role==='admin'?'<span class="rb rb-admin">⚡</span>':m.role==='tech'?'<span class="rb rb-tech">🔧</span>':'';chip.innerHTML=`<div class="ch-av" style="background:${p.avatar_color||COLORS[0]}">${ini(p.display_name||'?')}</div><div style="flex:1"><div style="font-size:13px;font-weight:600">${esc(p.display_name||'?')} ${rl}</div></div>${isMine&&m.user_id!==me.id?`<select onchange="setGrpRole('${m.user_id}',this.value)" style="background:var(--s3);border:1px solid var(--b1);border-radius:6px;color:var(--text);font-size:11px;padding:3px 6px;margin-right:4px"><option value="member" ${m.role==='member'?'selected':''}>Участник</option><option value="tech" ${m.role==='tech'?'selected':''}>Тех.Админ</option><option value="admin" ${m.role==='admin'?'selected':''}>Админ</option></select><button class="ch-kick" onclick="kickMem('${m.user_id}')">✕</button>`:''}`; c.appendChild(chip);}}
 async function setGrpRole(uid,role){await db.from('channel_members').update({role}).eq('channel_id',curRoom.id).eq('user_id',uid);loadGrpMems();}
 async function kickMem(uid){await db.from('channel_members').delete().eq('channel_id',curRoom.id).eq('user_id',uid);loadGrpMems();}
-async function addMem(uid){await db.from('channel_members').upsert({channel_id:curRoom.id,user_id:uid,role:'member'});loadGrpMems();toast('Добавлен ✓');}
-async function saveCS(){const nm=v('cs-nm'),dc=v('cs-dc');if(!nm)return;await db.from('channels').update({name:nm,description:dc}).eq('id',curRoom.id);curRoom.name=nm;curRoom.description=dc;document.getElementById('hd-nm').textContent=nm;const i=channels.findIndex(c=>c.id===curRoom.id);if(i>=0){channels[i].name=nm;channels[i].description=dc;}renderChannels();closeModal('cs-modal');toast('Сохранено ✓');}
-async function deleteChannel(){if(!confirm('Удалить навсегда?'))return;await cleanupFiles(curRoom.id,'channel');await db.from('channels').delete().eq('id',curRoom.id);channels=channels.filter(c=>c.id!==curRoom.id);renderChannels();closeModal('cs-modal');closeChat();toast('Удалено');}
-async function leaveChannel(){await db.from('channel_members').delete().eq('channel_id',curRoom.id).eq('user_id',me.id);closeModal('cs-modal');}
+async function addMem(uid){
+  if(!curRoom)return;
+  await sendGroupInvite(curRoom.id,curRoom.name,uid);
+  toast('Приглашение отправлено ✓');
+  closeModal('cs-modal');
+}
+async function saveCS(){
+  const nm=v('cs-nm'),dc=v('cs-dc');if(!nm)return;
+  if(hasMat(nm))return toast('❌ Недопустимое название');
+  await db.from('channels').update({name:nm,description:dc}).eq('id',curRoom.id);
+  curRoom.name=nm;curRoom.description=dc;
+  document.getElementById('hd-nm').textContent=nm;
+  const i=channels.findIndex(c=>c.id===curRoom.id);if(i>=0){channels[i].name=nm;channels[i].description=dc;}
+  renderChannels();closeModal('cs-modal');toast('Сохранено ✓');
+}
+async function deleteChannel(){
+  if(!confirm('Удалить навсегда?'))return;
+  const id=curRoom.id;
+  await cleanupFiles(id,'channel');
+  await db.from('channel_members').delete().eq('channel_id',id);
+  const{error}=await db.from('channels').delete().eq('id',id);
+  if(error)return toast('Ошибка: '+error.message);
+  channels=channels.filter(c=>c.id!==id);
+  closeModal('cs-modal');closeChat();renderChannels();toast('Удалено');
+}
+async function leaveChannel(){
+  if(!confirm('Покинуть?'))return;
+  const id=curRoom.id;
+  await db.from('channel_members').delete().eq('channel_id',id).eq('user_id',me.id);
+  // Remove from local channels list if group
+  channels=channels.filter(c=>c.id!==id);
+  closeModal('cs-modal');closeChat();renderChannels();toast('Вы покинули');
+}
 
 // ═══════════════════════════════════════════════
 //  DMs
@@ -1068,7 +1173,16 @@ async function startDM(tuid){let ex=dms.find(d=>d.otherId===tuid);if(ex){closeMo
 // ═══════════════════════════════════════════════
 function openFav(){curRoom={id:'fav',type:'fav',name:'Избранное'};setupChat({name:'Избранное',icon:'⭐',sub:'Мои заметки',color:'#f59e0b',showMem:false,showCS:false,showTheme:false,ph:'Сохранить заметку...'});markRead('fav');updatePinnedBanner();applyRoomTheme();loadMsgs('fav','fav');subMsgs('fav','fav');openMob();renderAll();}
 async function openChannel(ch){curRoom={...ch,type:ch.type==='group'?'group':'channel'};const col=ch.type==='group'?'#8b5cf6':'#5b8def';setupChat({name:ch.name,icon:ch.type==='group'?'👥':(ch.type==='private'?'🔒':'#'),sub:ch.description||'',color:col,isGrp:ch.type==='group',showMem:true,showCS:true,showTheme:false,ph:`Написать в #${ch.name}...`});markRead(ch.id);updatePinnedBanner();applyRoomTheme();await loadMsgs(ch.id,'channel');subMsgs(ch.id,'channel');openMob();renderAll();if(memOpen)loadMems();checkMedia();}
-async function openDM(dm){curRoom={...dm,type:'dm'};const p=profiles[dm.otherId]||{};setupChat({name:pnm(dm.otherId),icon:null,sub:`@${p.username||''}`+(onlineSet.has(dm.otherId)?' · онлайн':''),color:p.avatar_color||COLORS[0],showMem:false,showCS:false,showTheme:true,ph:`Написать ${pnm(dm.otherId)}...`});if(memOpen){memOpen=false;document.getElementById('mem-panel').classList.remove('on');}markRead(dm.id);updatePinnedBanner();applyRoomTheme();await loadMsgs(dm.id,'dm');subMsgs(dm.id,'dm');openMob();renderAll();checkMedia();}
+async function openDM(dm){
+  curRoom={...dm,type:'dm'};
+  const p=profiles[dm.otherId]||{};
+  const rl=p.role==='owner'?'👑':p.role==='admin'?'⚡':p.role==='tech'?'🔧':'';
+  const subText=`@${p.username||''}${rl?' '+rl:''}${onlineSet.has(dm.otherId)?' · онлайн':''}`;
+  setupChat({name:pnm(dm.otherId),icon:null,sub:subText,color:p.avatar_color||COLORS[0],showMem:false,showCS:false,showTheme:true,ph:`Написать ${pnm(dm.otherId)}...`});
+  if(memOpen){memOpen=false;document.getElementById('mem-panel').classList.remove('on');}
+  markRead(dm.id);updatePinnedBanner();applyRoomTheme();
+  await loadMsgs(dm.id,'dm');subMsgs(dm.id,'dm');openMob();renderAll();checkMedia();
+}
 function setupChat({name,icon,sub,color,isGrp,showMem,showCS,showTheme,ph}){
   document.getElementById('empty').style.display='none';
   const cw=document.getElementById('chat-wrap');cw.style.display='flex';
@@ -1142,6 +1256,9 @@ function mkMsg(msg,cont){
   const ticks=isMine&&curRoom?.type==='dm'?`<span class="m-tks${readByOther?' read':''}">${readByOther?' ✓✓':' ✓'}</span>`:'';
 
   let content='';
+  // Check message types
+  const isInvite=!!(msg.content&&msg.content.startsWith('🔔__INVITE__'));
+  const isSystem=!!(msg.content&&(msg.content.startsWith('🗑')||isInvite));
   if(msg.reply_to){const orig=msgs.find(m=>m.id===msg.reply_to);if(orig){const op=profiles[orig.user_id]||{};content+=`<div class="m-rep" onclick="scrollToMsg('${orig.id}')"><span class="m-rep-au">${esc(op.display_name||'?')}</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(orig.content||'[медиа]')}</span></div>`;}}
   if(msg.file_url){
     const ft=msg.file_type||'';
@@ -1162,8 +1279,24 @@ function mkMsg(msg,cont){
     // File was deleted
     content+=`<div class="m-sys">🗑 ${msg.is_sticker?'Стикер':msg.is_circle?'Кружок':'Медиа'} удалено системой</div>`;
   }
-  const isSystem=msg.content&&msg.content.startsWith('🗑');
-  if(msg.content){content+=`<div class="${isSystem?'m-sys':'m-tx'}">${isSystem?esc(msg.content):fmtText(msg.content)}${msg.edited&&!isSystem?'<span class="m-ed">(ред.)</span>':''}</div>`;}
+
+  if(msg.content){
+    if(isInvite){
+      // Parse invite: 🔔__INVITE__channelId__channelName
+      const parts=msg.content.split('__');
+      const chId=parts[2]||'';const chName=parts[3]||'Группа';
+      content+=`<div style="background:var(--s3);border:1px solid var(--b2);border-radius:12px;padding:12px 14px;margin-top:4px;max-width:280px">
+        <div style="font-size:12px;color:var(--t3);margin-bottom:4px">📩 Приглашение в группу</div>
+        <div style="font-size:14px;font-weight:700;margin-bottom:10px">👥 ${esc(chName)}</div>
+        ${!isMine?`<div style="display:flex;gap:8px">
+          <button onclick="acceptInvite('${chId}')" style="flex:1;padding:8px;background:linear-gradient(135deg,var(--ac),var(--ac2));border:none;border-radius:8px;color:#fff;font-size:13px;font-weight:600;cursor:pointer">Войти</button>
+          <button onclick="declineInvite('${msg.id}')" style="flex:1;padding:8px;background:var(--s2);border:1px solid var(--b2);border-radius:8px;color:var(--t2);font-size:13px;cursor:pointer">Отклонить</button>
+        </div>`:`<div style="font-size:12px;color:var(--t3)">Отправлено ✓</div>`}
+      </div>`;
+    } else {
+      content+=`<div class="${isSystem?'m-sys':'m-tx'}">${isSystem?esc(msg.content):fmtText(msg.content)}${msg.edited&&!isSystem?'<span class="m-ed">(ред.)</span>':''}</div>`;
+    }
+  }
   const rcts=msg.reactions||{};let rhtml='';
   if(Object.keys(rcts).length){rhtml='<div class="m-rcts">';for(const[em,us]of Object.entries(rcts)){rhtml+=`<div class="rct${us.includes(me.id)?' mine':''}" onclick="toggleRct('${msg.id}','${em}')">${em}<span>${us.length}</span></div>`;}rhtml+='</div>';}
   const inner=bub?`<div class="m-bub">${content}${rhtml}</div>`:content+rhtml;
@@ -1363,7 +1496,25 @@ async function uploadFile(file,opts={}){
     return{file_url:publicUrl,file_name:f.name,file_type:f.type,file_size:f.size,...opts.extra};
   }catch(ex){toast('Ошибка: '+ex.message);return null;}
 }
-async function delStorFile(url){try{const u=new URL(url);const pts=u.pathname.split('/object/public/attachments/');if(pts[1])await db.storage.from('attachments').remove([decodeURIComponent(pts[1])]);}catch(e){}}
+async function delStorFile(url){
+  if(!url)return;
+  try{
+    const u=new URL(url);
+    // Supabase public URL format: .../storage/v1/object/public/BUCKET/PATH
+    let path=null;
+    const m=u.pathname.match(/\/object\/public\/attachments\/(.+)/);
+    if(m)path=decodeURIComponent(m[1]);
+    if(!path){
+      // Fallback: try splitting by bucket name
+      const parts=u.pathname.split('/attachments/');
+      if(parts[1])path=decodeURIComponent(parts[1]);
+    }
+    if(path){
+      const{error}=await db.storage.from('attachments').remove([path]);
+      if(error)console.warn('Storage delete error:',error.message,path);
+    }
+  }catch(e){console.warn('delStorFile error:',e.message);}
+}
 
 // ═══════════════════════════════════════════════
 //  AUTO-DELETE MEDIA (1 HOUR) — full server cleanup
@@ -1444,7 +1595,8 @@ async function showSV(i){
   svStory=s;
   const p=profiles[s.user_id]||{};
   document.getElementById('sv-uav').style.background=p.avatar_color||COLORS[0];document.getElementById('sv-uav').textContent=ini(p.display_name||'?');
-  document.getElementById('sv-nm').textContent=p.display_name||'?';
+  const rl=p.role==='owner'?'👑':p.role==='admin'?'⚡':p.role==='tech'?'🔧':'';
+  document.getElementById('sv-nm').textContent=(p.display_name||'?')+(rl?' '+rl:'');
   const diff=Math.floor((Date.now()-new Date(s.created_at))/60000);
   document.getElementById('sv-tm').textContent=diff<60?diff+'м назад':Math.floor(diff/60)+'ч назад';
   document.getElementById('sv-txt').textContent=s.text_overlay||'';
@@ -1541,21 +1693,41 @@ async function uploadStory(){
 // ═══════════════════════════════════════════════
 //  CIRCLE VIDEO
 // ═══════════════════════════════════════════════
+let circFacing='user';
 async function startCirc(){
   if(!curRoom)return;
   try{
-    circStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:400},height:{ideal:400}},audio:true});
+    circStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:circFacing,width:{ideal:400},height:{ideal:400}},audio:true});
     const prev=document.getElementById('circ-preview');prev.srcObject=circStream;
     document.getElementById('circ-rec').classList.add('on');
     circChunks=[];circStart=Date.now();
-    circMR=new MediaRecorder(circStream,{mimeType:'video/webm;codecs=vp9,opus'});
-    circMR.ondataavailable=e=>{if(e.data.size>0)circChunks.push(e.data);};
+    const mimeType=MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')?'video/webm;codecs=vp9,opus':'video/webm';
+    circMR=new MediaRecorder(circStream,{mimeType});
+    circMR.ondataavailable=e=>{if(e.data&&e.data.size>0)circChunks.push(e.data);};
     circMR.start(100);
-    // Timer
-    circInterval=setInterval(()=>{const elapsed=Math.floor((Date.now()-circStart)/1000);const s=elapsed%60;const m=Math.floor(elapsed/60);document.getElementById('circ-timer').textContent=`${m}:${s.toString().padStart(2,'0')}`;},100);
-    // Auto-stop at 60s
+    circInterval=setInterval(()=>{
+      const elapsed=Math.floor((Date.now()-circStart)/1000);
+      const s=elapsed%60;const m=Math.floor(elapsed/60);
+      const timer=document.getElementById('circ-timer');
+      timer.textContent=`${m}:${s.toString().padStart(2,'0')}`;
+      if(elapsed>=55)timer.style.color='var(--danger)';
+    },100);
     circTO=setTimeout(()=>sendCirc(),60000);
   }catch(e){toast('Нет доступа к камере: '+e.message);}
+}
+async function switchCircCamera(){
+  if(!circStream)return;
+  circFacing=circFacing==='user'?'environment':'user';
+  circStream.getVideoTracks().forEach(t=>t.stop());
+  try{
+    const vs=await navigator.mediaDevices.getUserMedia({video:{facingMode:circFacing,width:{ideal:400},height:{ideal:400}}});
+    const newTracks=vs.getVideoTracks();
+    const audioTracks=circStream.getAudioTracks();
+    const newStream=new MediaStream([...newTracks,...audioTracks]);
+    circStream=newStream;
+    document.getElementById('circ-preview').srcObject=newStream;
+    toast(circFacing==='user'?'📷 Фронт':'📷 Основная');
+  }catch(e){toast('Ошибка смены камеры: '+e.message);}
 }
 async function sendCirc(){
   clearTimeout(circTO);clearInterval(circInterval);
@@ -1583,9 +1755,45 @@ function cancelCirc(){
 }
 
 // ═══════════════════════════════════════════════
-//  TYPING
+//  PROFANITY FILTER
 // ═══════════════════════════════════════════════
-function onType(){if(!curRoom)return;db.channel(`typ:${curRoom.id}`).send({type:'broadcast',event:'typ',payload:{uid:me.id,name:myProfile?.display_name||'?'}}).catch(()=>{});clearTimeout(typTO);typTO=setTimeout(stopTyp,2500);updateCircBtn();}
+const MAT=['хуй','пизда','блядь','блять','ебать','еблан','сука','пидор','хуйня','пиздец','ёбаный','ёбать','залупа','мудак','долбоёб','ублюдок','шлюха','чмо','cock','shit','fuck','bitch','asshole','cunt','dick','pussy','faggot','nigger','whore'];
+function hasMat(str){const low=str.toLowerCase().replace(/\s+/g,'');return MAT.some(w=>low.includes(w));}
+
+// ═══════════════════════════════════════════════
+//  GROUP INVITES (via DM system message)
+// ═══════════════════════════════════════════════
+async function sendGroupInvite(channelId,channelName,targetUid){
+  // Find or create DM
+  let dm=dms.find(d=>d.otherId===targetUid);
+  if(!dm){
+    const uid=me.id,tid=targetUid;
+    const u1=uid<tid?uid:tid,u2=uid<tid?tid:uid;
+    const{data}=await db.from('direct_conversations').upsert({user1_id:u1,user2_id:u2},{onConflict:'user1_id,user2_id'}).select().single();
+    if(!data)return toast('Ошибка отправки приглашения');
+    await ep(tid);dm={...data,otherId:tid};dms.unshift(dm);renderDMs();
+  }
+  const inviteMsg=`🔔__INVITE__${channelId}__${esc(channelName)}`;
+  await db.from('direct_messages').insert({conversation_id:dm.id,user_id:me.id,content:inviteMsg,read_by:[]});
+  toast(`Приглашение отправлено ${pnm(targetUid)}`);
+}
+async function acceptInvite(channelId){
+  const{data:ch}=await db.from('channels').select('*').eq('id',channelId).single();
+  if(!ch)return toast('Канал/группа не найдены');
+  await db.from('channel_members').upsert({channel_id:channelId,user_id:me.id,role:'member'});
+  if(!channels.find(c=>c.id===channelId)){channels.push(ch);renderChannels();}
+  toast('Вы вступили в '+ch.name+' ✓');
+  openChannel(ch);
+}
+function declineInvite(msgId){
+  toast('Приглашение отклонено');
+  // Visually hide the invite message
+  const el=document.querySelector(`[data-id="${msgId}"]`);
+  if(el)el.style.opacity='0.4';
+}
+// ═══════════════════════════════════════════════
+//  TYPING
+// ═══════════════════════════════════════════════({type:'broadcast',event:'typ',payload:{uid:me.id,name:myProfile?.display_name||'?'}}).catch(()=>{});clearTimeout(typTO);typTO=setTimeout(stopTyp,2500);updateCircBtn();}
 function stopTyp(){clearTimeout(typTO);}
 
 // ═══════════════════════════════════════════════
@@ -1746,4 +1954,4 @@ function sls(k,v){localStorage.setItem(k,v);}
 init();
 </script>
 </body>
-                                                                                                                                                                                                                                                                                              </html>
+</html>
